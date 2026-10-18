@@ -1,5 +1,8 @@
 # Florida Friendly Planting Planner
 
+[![Run Fieldnote](https://img.shields.io/badge/Run%20Fieldnote-Live%20planner-246b52?style=for-the-badge)](https://bins-projects.github.io/Landscaping/)
+[Download the current repository ZIP](https://github.com/bins-projects/Landscaping/archive/refs/heads/main.zip)
+
 A [Claude](https://claude.com) plugin that turns a Florida property into a finished, shareable landscape plan set built on [Florida-Friendly Landscaping™](https://ffl.ifas.ufl.edu/) principles and Florida native plants.
 
 Give Claude a property (a county GIS link, an address, photos or a site video) and it can:
@@ -15,7 +18,9 @@ It works for home yards, HOA common areas, pool grounds, school gardens and othe
 
 `standalone/` contains the first step toward a separate, local program. Open `standalone/index.html` in a modern browser to upload an aerial image, calibrate its scale from a known distance, trace site features, and save or reopen each property as its own `.siteplan` file. Water can be outlined by clicking inside it; the local color-region tool previews the result and lets you adjust tolerance before accepting it. It runs on the device without Claude, an account, a server, or an AI service. You can also export an annotated PNG.
 
-This is currently the mapping foundation, not the complete planting planner. It does not yet georeference GIS/GeoTIFF files, set north, automatically interpret aerials, or feed the traced site into the existing planting-plan generator. The feature traces are manual and dimensions depend on the accuracy of the chosen scale and trace. Desktop packaging and connecting site projects to the plan generator are next development steps.
+This is currently the mapping foundation, not the complete planting planner. It does not yet georeference GIS/GeoTIFF files, set north, automatically interpret aerials, or feed the traced site into the existing planting-plan generator. Water tracing is assisted; other features are traced manually. Dimensions depend on the accuracy of the chosen scale and trace. Desktop packaging and connecting site projects to the plan generator are next development steps.
+
+The live planner is published from `standalone/` with GitHub Pages. Changes pushed to `main` automatically replace the live version.
 
 To check its geometry code, run `node standalone/tests/test-site-geometry.js`.
 
