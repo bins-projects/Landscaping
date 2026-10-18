@@ -29,7 +29,7 @@
       </div>
 
       <section class="panel">
-        <div class="step-title"><span class="step-number">1</span><div><h2>Site details</h2><p>Each property is saved as its own project.</p></div></div>
+        <div class="step-title"><div><h2>Start with an image</h2><p>Drop in an aerial or screenshot, then map directly on it.</p></div></div>
         <label class="field-label" for="siteName">Project name</label>
         <input id="siteName" class="text-input" value="Untitled Florida site" maxlength="100">
         <label class="field-label" for="siteLocation">City, county, or address <span class="optional">optional</span></label>
@@ -44,17 +44,8 @@
       </section>
 
       <section class="panel">
-        <div class="step-title"><span class="step-number">2</span><div><h2>Set map scale</h2><p>Calibrate from a known distance in the image.</p></div></div>
-        <div class="calibration-help"><span class="ruler-icon" aria-hidden="true">↔</span><p>Mark two points on the aerial, then enter their real-world distance.</p></div>
-        <label class="field-label" for="distanceFeet">Distance between points</label>
-        <div class="input-with-unit"><input id="distanceFeet" class="text-input" type="number" min="0.1" step="0.1" value="100"><span>feet</span></div>
-        <button class="button button-outline full-width" id="calibrateButton" disabled>Mark scale on image</button>
-        <p id="scaleStatus" class="status-line"><span class="status-dot"></span>Scale not set</p>
-      </section>
-
-      <section class="panel">
-        <div class="step-title"><span class="step-number">3</span><div><h2>Map site features</h2><p>Detect water automatically or trace other details by hand.</p></div></div>
-        <label class="field-label" for="featureType">What are you tracing?</label>
+        <div class="step-title"><div><h2>Map features</h2><p>Outline buildings, water, paths, trees, utilities, and more.</p></div></div>
+        <label class="field-label" for="featureType">Feature type</label>
         <select id="featureType" class="text-input">
           <option value="parcel">Property boundary · polygon</option>
           <option value="building">Building or structure · polygon</option>
@@ -89,7 +80,16 @@
           <button class="button button-quiet" id="undoPoint" disabled title="Remove last point">Undo point</button>
           <button class="button button-quiet" id="finishShape" disabled>Finish</button>
         </div>
-        <p id="drawHelp" class="subtle">Load an image and set its scale to begin.</p>
+        <p id="drawHelp" class="subtle">Load an image to start mapping. Scale is optional.</p>
+      </section>
+
+      <section class="panel">
+        <div class="step-title"><div><h2>Set scale <span class="optional">optional · anytime</span></h2><p>Use a known distance when you need real measurements.</p></div></div>
+        <div class="calibration-help"><span class="ruler-icon" aria-hidden="true">↔</span><p>Mark two points on the aerial, then enter their real-world distance.</p></div>
+        <label class="field-label" for="distanceFeet">Distance between points</label>
+        <div class="input-with-unit"><input id="distanceFeet" class="text-input" type="number" min="0.1" step="0.1" value="100"><span>feet</span></div>
+        <button class="button button-outline full-width" id="calibrateButton" disabled>Mark scale on image</button>
+        <p id="scaleStatus" class="status-line"><span class="status-dot"></span>Scale not set</p>
       </section>
 
       <section class="panel feature-panel">
@@ -115,7 +115,7 @@
         <div id="emptyState" class="empty-state">
           <div class="empty-art" aria-hidden="true"><span>⌖</span><i></i><b></b></div>
           <h2>Your map starts with an aerial</h2>
-          <p>Upload a screenshot or aerial image, set its scale, then trace the property and site features.</p>
+          <p>Upload a screenshot or aerial image and start outlining. Add scale later when you need real measurements.</p>
           <button class="button button-primary" id="emptyChooseImage">Choose aerial image</button>
           <small>No account, cloud service, or AI required.</small>
         </div>
@@ -125,7 +125,7 @@
       </div>
       <div class="map-footer">
         <span id="coordinatesReadout">Image coordinates appear here</span>
-        <span id="scaleReadout">Set a scale to calculate site dimensions</span>
+        <span id="scaleReadout">Scale optional · measurements shown in image pixels</span>
         <span class="map-footer-note">Aerials can hide features under trees or shadows. Confirm important dimensions on site.</span>
       </div>
     </section>

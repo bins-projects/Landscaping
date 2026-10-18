@@ -216,20 +216,20 @@
     const ready = Number.isFinite(state.ftPerPixel) && state.ftPerPixel > 0;
     status.classList.toggle('ready', ready);
     status.innerHTML = ready ? `<span class="status-dot"></span>Calibrated · ${formatNumber(1 / state.ftPerPixel)} image pixels per foot` : '<span class="status-dot"></span>Scale not set';
-    $('scaleReadout').textContent = ready ? `Scale: 1 ft = ${formatNumber(1 / state.ftPerPixel)} px · 1 acre = 43,560 sq ft` : 'Set a scale to calculate site dimensions';
-    $('drawButton').disabled = !state.image || !ready;
+    $('scaleReadout').textContent = ready ? `Scale: 1 ft = ${formatNumber(1 / state.ftPerPixel)} px · 1 acre = 43,560 sq ft` : 'Scale optional · measurements shown in image pixels';
+    $('drawButton').disabled = !state.image;
     $('calibrateButton').disabled = !state.image;
     $('exportMap').disabled = !state.image;
     $('saveProject').disabled = !state.image;
-    const canStartWaterTrace = Boolean(state.image && ready && (!state.activeMode || state.activeMode === 'draw' || state.activeMode === 'auto-review'));
+    const canStartWaterTrace = Boolean(state.image && (!state.activeMode || state.activeMode === 'draw' || state.activeMode === 'auto-review'));
     $('autoWaterButton').disabled = !canStartWaterTrace;
     const reviewingWater = state.activeMode === 'auto-review';
     $('autoWaterButton').textContent = reviewingWater ? 'Cancel water preview' : 'Automatically detect water';
     $('autoWaterButton').classList.toggle('button-primary', !reviewingWater);
     $('autoWaterButton').classList.toggle('button-outline', reviewingWater);
-    $('autoWaterButton').title = !state.image ? 'Load an aerial image first.' : !ready ? 'Calibrate the image scale first.' : 'Automatically find the largest water-like color region in the image or mapped property.';
-    if (!ready) $('drawHelp').textContent = state.image ? 'Calibrate the image scale before tracing so dimensions are real.' : 'Load an image and set its scale to begin.';
-    else if (!state.activeMode) $('drawHelp').textContent = 'Choose a feature, then trace it on the map. Double-click or press Finish to close polygons.';
+    $('autoWaterButton').title = !state.image ? 'Load an aerial image first.' : 'Automatically find the largest water-like color region in the image or mapped property.';
+    if (!state.image) $('drawHelp').textContent = 'Load an image to start mapping. Scale is optional.';
+    else if (!state.activeMode) $('drawHelp').textContent = ready ? 'Choose a feature and trace it on the image. Scale can be changed anytime.' : 'Choose a feature and trace it on the image. Measurements use pixels until you set scale.';
   }
 
   function updateFeatureList() {
@@ -242,11 +242,12 @@
     list.innerHTML = state.features.map((f, i) => {
       const spec = TYPES[f.type] || TYPES.point;
       let measure = '';
-      if (f.geometry === 'polygon' && f.points.length >= 3) measure = `${formatNumber(polygonArea(f.points))} sq ft`;
-      else if (f.geometry === 'line') measure = `${formatNumber(lengthFeet(f.points))} ft`;
+      if (f.geometry === 'polygon' && f.points.length >= 3) measure = `${formatNumber(polygonArea(f.points))} ${state.ftPerPixel ? 'sq ft' : 'px²'}`;
+      else if (f.geometry === 'line') measure = `${formatNumber(lengthFeet(f.points))} ${state.ftPerPixel ? 'ft' : 'px'}`;
       else if (f.geometry === 'circle' && f.points.length >= 2) {
-        const r = Math.hypot(f.points[1].x - f.points[0].x, f.points[1].y - f.points[0].y) * state.ftPerPixel;
-        measure = `Ø ${formatNumber(2 * r)} ft`;
+        const scale = state.ftPerPixel || 1;
+        const r = Math.hypot(f.points[1].x - f.points[0].x, f.points[1].y - f.points[0].y) * scale;
+        measure = `Ø ${formatNumber(2 * r)} ${state.ftPerPixel ? 'ft' : 'px'}`;
       } else if (f.geometry === 'point') measure = 'Point';
       return `<div class="feature-row"><span class="feature-swatch" style="background:${spec.color}"></span><div class="feature-meta"><b>${escapeHtml(f.name || spec.label)}</b><small>${spec.label} · ${f.confidence === 'estimated' ? 'estimated' : 'confirmed'}</small></div><span class="feature-area">${measure}</span><button class="delete-feature" data-delete="${i}" aria-label="Delete ${escapeHtml(f.name || spec.label)}" title="Delete">×</button></div>`;
     }).join('');
@@ -284,8 +285,7 @@
     else if (mode === 'calibrate') $('drawHelp').textContent = 'Click the first and second ends of your known distance.';
     else if (mode === 'auto-water') $('drawHelp').textContent = 'Finding the largest water-like color region…';
     else if (mode === 'auto-review') $('drawHelp').textContent = 'Review the automatically detected outline, then accept it.';
-    else if (!state.ftPerPixel) $('drawHelp').textContent = state.image ? 'Calibrate the image scale before tracing so dimensions are real.' : 'Load an image and set its scale to begin.';
-    else $('drawHelp').textContent = 'Choose a feature, then trace it on the map. Double-click or press Finish to close polygons.';
+    else $('drawHelp').textContent = state.image ? 'Choose a feature and trace it on the image. Measurements use pixels until you set scale.' : 'Load an image to start mapping. Scale is optional.';
     updateScaleDisplay();
     render();
   }
@@ -293,7 +293,7 @@
   function getDrawHelp() {
     const shape = TYPES[$('featureType').value].shape;
     if (shape === 'polygon') return 'Click around the feature boundary; double-click or press Finish to close it.';
-    if (shape === 'line') return 'Click along the feature; double-click or press Finish to end the line.';
+    if (shape === 'line') return 'Click along the curve or path; double-click or press Finish to end the line.';
     if (shape === 'circle') return 'Click the tree center, then click the canopy edge.';
     return 'Click the feature location once to place a marker.';
   }
@@ -441,7 +441,7 @@
     state.ftPerPixel = measured.feetPerPixel;
     state.calibration = { points: [a, b], distance_ft: distance, pixel_distance: +imagePixels.toFixed(3) };
     $('mapHint').textContent = state.location || 'Scale calibrated · ready to trace';
-    setMode(null); updateScaleDisplay(); render();
+    setMode(null); updateScaleDisplay(); updateFeatureList(); render();
     showNotice(`Scale set: ${formatNumber(imagePixels / distance)} px per foot.`);
   }
 
@@ -479,8 +479,8 @@
         setMode(null);
         $('emptyState').hidden = true;
         $('imageStatus').textContent = `${file.name} · ${image.naturalWidth.toLocaleString()} × ${image.naturalHeight.toLocaleString()} px`;
-        $('mapHint').textContent = 'Image loaded · calibrate scale to start tracing';
-        resizeCanvas(); updateScaleDisplay(); updateFeatureList(); showNotice('Image loaded. Set the scale before tracing.');
+        $('mapHint').textContent = 'Image loaded · start mapping whenever you’re ready';
+        resizeCanvas(); updateScaleDisplay(); updateFeatureList(); showNotice('Image loaded. Start outlining; scale is optional.');
       };
       image.onerror = () => showNotice('This image could not be opened. Try a PNG or JPG.');
       image.src = reader.result;
@@ -492,7 +492,7 @@
     const features = state.features.map(f => ({
       id: f.id, name: f.name, type: f.type, geometry: f.geometry, confidence: f.confidence,
       points_image_px: f.points.map(p => ({ x: +p.x.toFixed(2), y: +p.y.toFixed(2) })),
-      points_local_ft: f.points.map(localFeet)
+      points_local_ft: state.ftPerPixel ? f.points.map(localFeet) : null
     }));
     return {
       format: 'florida-friendly-site-project', schema_version: 1,
@@ -504,7 +504,7 @@
   }
 
   function saveProject() {
-    if (!state.image || !state.ftPerPixel) { showNotice('Load an image and set the scale before saving.'); return; }
+    if (!state.image) { showNotice('Load an image before saving.'); return; }
     const data = JSON.stringify(projectObject(), null, 2);
     const blob = new Blob([data], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -601,7 +601,6 @@
   $('autoWaterButton').addEventListener('click', () => {
     if (state.activeMode === 'auto-review') { cancelAutoWater(); return; }
     if ($('featureType').value !== 'water') { showNotice('Choose “Pool or water feature” first.'); return; }
-    if (!state.ftPerPixel) { showNotice('Set the image scale before tracing.'); return; }
     state.draft = [];
     state.autoPreview = null;
     setMode('auto-water');
