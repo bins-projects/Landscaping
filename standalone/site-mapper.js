@@ -10,7 +10,8 @@
     image: null, imageWidth: 0, imageHeight: 0, ftPerPixel: null,
     calibrationPoints: [], features: [], draft: [], activeMode: null,
     viewScale: 1, offsetX: 0, offsetY: 0, dpr: 1, panning: null,
-    noticeTimer: null, spaceDown: false, suppressClick: false
+    noticeTimer: null, spaceDown: false, suppressClick: false,
+    draggingPreviewVertex: null, selectedPreviewVertex: null, previewEditStart: null, previewUndo: []
   };
 
   const TYPES = {
@@ -123,6 +124,7 @@
     ctx.drawImage(state.image, 0, 0, state.imageWidth, state.imageHeight);
     state.features.forEach(drawFeature);
     if (state.autoPreview) drawFeature({ ...state.autoPreview, geometry: 'polygon' });
+    if (state.autoPreview) drawPreviewVertices();
     if (state.activeMode === 'draw' && state.draft.length) drawDraft();
     if (state.activeMode === 'calibrate' && state.calibrationPoints.length) drawCalibrationDraft();
     ctx.restore();
@@ -159,6 +161,22 @@
       ctx.fillStyle = '#26382d';
       ctx.fillText(label, at.x + 7 / state.viewScale + pad, at.y + 1 / state.viewScale);
     }
+    ctx.restore();
+  }
+
+  function drawPreviewVertices() {
+    const points = state.autoPreview?.points || [];
+    ctx.save();
+    points.forEach((point, index) => {
+      const selected = index === state.selectedPreviewVertex;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, (selected ? 6 : 4) / state.viewScale, 0, Math.PI * 2);
+      ctx.fillStyle = selected ? '#ffffff' : '#38a5bb';
+      ctx.fill();
+      ctx.lineWidth = 1.5 / state.viewScale;
+      ctx.strokeStyle = '#ffffff';
+      ctx.stroke();
+    });
     ctx.restore();
   }
 
@@ -244,7 +262,13 @@
 
   function setMode(mode) {
     if (mode !== 'auto-review') state.autoPreview = null;
-    if (mode !== 'auto-review' && mode !== 'auto-water') state.autoSeed = null;
+    if (mode !== 'auto-review') {
+      state.selectedPreviewVertex = null;
+      state.draggingPreviewVertex = null;
+      state.previewEditStart = null;
+      state.previewUndo = [];
+      $('undoOutlineEdit').disabled = true;
+    }
     state.activeMode = mode;
     state.draft = [];
     $('autoWaterControls').hidden = mode !== 'auto-review';
@@ -290,7 +314,7 @@
         y: p.y * workCanvas.height / state.imageHeight
       })) || null;
       const result = SiteSegmentation.detectWater(pixels.data, workCanvas.width, workCanvas.height, allowedPolygon);
-      const points = SiteSegmentation.contourFromMask(result.mask, workCanvas.width, workCanvas.height)
+      const points = SiteSegmentation.contourFromMask(result.mask, workCanvas.width, workCanvas.height, 15)
         .map(p => ({ x: p.x * state.imageWidth / workCanvas.width, y: p.y * state.imageHeight / workCanvas.height }));
       if (result.count < 24 || points.length < 3) throw new Error('Could not find a large clear water region. Try tracing it manually.');
       state.autoPreview = {
@@ -298,7 +322,10 @@
         confidence: $('confidence').value, pixel_count: result.count,
         coverage: result.coverage, detection: result.confidence
       };
+      state.previewUndo = [];
       setMode('auto-review');
+      $('undoOutlineEdit').disabled = true;
+      $('drawHelp').textContent = 'Drag a point to reshape the outline. Double-click the line to add a point; select one and press Delete to remove it.';
       showNotice('Water detected. Review the outline and accept it.');
     } catch (error) {
       state.autoPreview = null;
@@ -315,13 +342,66 @@
       name, type: 'water', geometry: 'polygon', confidence: $('confidence').value,
       points: state.autoPreview.points
     });
-    state.autoPreview = null; state.autoSeed = null; $('featureName').value = '';
+    state.autoPreview = null; $('featureName').value = '';
     setMode(null); updateFeatureList(); showNotice(`${name} added to this site.`);
   }
 
   function cancelAutoWater() {
-    state.autoPreview = null; state.autoSeed = null;
+    state.autoPreview = null;
     setMode(null); render();
+  }
+
+  function savePreviewUndo() {
+    if (!state.autoPreview) return;
+    state.previewUndo.push(state.autoPreview.points.map(p => ({ x: p.x, y: p.y })));
+    if (state.previewUndo.length > 30) state.previewUndo.shift();
+    $('undoOutlineEdit').disabled = false;
+  }
+
+  function undoPreviewEdit() {
+    if (!state.previewUndo.length || !state.autoPreview) return;
+    state.autoPreview.points = state.previewUndo.pop();
+    state.selectedPreviewVertex = null;
+    $('undoOutlineEdit').disabled = state.previewUndo.length === 0;
+    render();
+  }
+
+  function closestPreviewVertex(point, maxDistance) {
+    const points = state.autoPreview?.points || [];
+    let nearest = -1, distance = maxDistance;
+    points.forEach((p, i) => {
+      const d = Math.hypot(p.x - point.x, p.y - point.y);
+      if (d < distance) { nearest = i; distance = d; }
+    });
+    return nearest;
+  }
+
+  function addPreviewVertex(event) {
+    if (!state.autoPreview || state.autoPreview.points.length >= 500) return;
+    const point = imagePoint(event), points = state.autoPreview.points;
+    let best = { distance: Infinity, index: -1, point: null };
+    for (let i = 0; i < points.length; i++) {
+      const a = points[i], b = points[(i + 1) % points.length];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / (dx * dx + dy * dy || 1)));
+      const projected = { x: a.x + t * dx, y: a.y + t * dy };
+      const distance = Math.hypot(point.x - projected.x, point.y - projected.y);
+      if (distance < best.distance) best = { distance, index: i + 1, point: projected };
+    }
+    if (best.distance > 18 / state.viewScale) return;
+    savePreviewUndo();
+    state.autoPreview.points.splice(best.index, 0, best.point);
+    state.selectedPreviewVertex = best.index;
+    render();
+  }
+
+  function removeSelectedPreviewVertex() {
+    if (!state.autoPreview || state.selectedPreviewVertex === null) return;
+    if (state.autoPreview.points.length <= 3) { showNotice('An outline needs at least 3 points.'); return; }
+    savePreviewUndo();
+    state.autoPreview.points.splice(state.selectedPreviewVertex, 1);
+    state.selectedPreviewVertex = null;
+    render();
   }
 
   function finishDrawing() {
@@ -390,7 +470,7 @@
         state.image = image; state.imageData = reader.result; state.imageName = file.name;
         state.imageWidth = image.naturalWidth; state.imageHeight = image.naturalHeight;
         state.ftPerPixel = null; state.calibration = null; state.calibrationPoints = [];
-        state.features = []; state.draft = []; state.activeMode = null; state.autoPreview = null; state.autoSeed = null; state.hasFit = false;
+        state.features = []; state.draft = []; state.activeMode = null; state.autoPreview = null; state.hasFit = false;
         setMode(null);
         $('emptyState').hidden = true;
         $('imageStatus').textContent = `${file.name} · ${image.naturalWidth.toLocaleString()} × ${image.naturalHeight.toLocaleString()} px`;
@@ -453,7 +533,7 @@
           state.ftPerPixel = Number(data.calibration?.feet_per_pixel) || null;
           state.calibration = data.calibration ? { points: data.calibration.points, distance_ft: data.calibration.distance_ft, pixel_distance: data.calibration.pixel_distance } : null;
           state.features = data.features.map(f => ({ id: f.id || `feature-${Date.now()}`, name: f.name, type: f.type, geometry: f.geometry, confidence: f.confidence, points: (f.points_image_px || []).map(p => ({ x: Number(p.x), y: Number(p.y) })) }));
-          state.activeMode = null; state.draft = []; state.autoPreview = null; state.autoSeed = null; state.hasFit = false;
+          state.activeMode = null; state.draft = []; state.autoPreview = null; state.hasFit = false;
           setMode(null);
           $('emptyState').hidden = true;
           $('siteName').dispatchEvent(new Event('input'));
@@ -493,7 +573,7 @@
   function startNewSite() {
     if (hasSiteWork() && !confirm('Start a new site? Unsaved work in this tab will be cleared.')) return;
     state.image = null; state.imageData = ''; state.imageName = ''; state.imageWidth = 0; state.imageHeight = 0;
-    state.ftPerPixel = null; state.calibration = null; state.calibrationPoints = []; state.features = []; state.draft = []; state.autoPreview = null; state.autoSeed = null;
+    state.ftPerPixel = null; state.calibration = null; state.calibrationPoints = []; state.features = []; state.draft = []; state.autoPreview = null;
     state.activeMode = null; state.hasFit = false; state.offsetX = 0; state.offsetY = 0;
     $('siteName').value = 'Untitled Florida site'; $('siteLocation').value = '';
     $('imageStatus').textContent = 'No image loaded yet.'; $('emptyState').hidden = false;
@@ -522,6 +602,7 @@
     setMode('auto-water');
     runAutoWaterTrace();
   });
+  $('undoOutlineEdit').addEventListener('click', undoPreviewEdit);
   $('acceptWater').addEventListener('click', acceptAutoWater);
   $('cancelWater').addEventListener('click', cancelAutoWater);
   $('saveProject').addEventListener('click', saveProject);
@@ -533,15 +614,40 @@
   $('zoomIn').addEventListener('click', () => zoomAt(1.2));
   $('zoomOut').addEventListener('click', () => zoomAt(1/1.2));
   canvas.addEventListener('click', onMapClick);
-  canvas.addEventListener('dblclick', event => { event.preventDefault(); if (state.activeMode === 'draw') finishDrawing(); });
+  canvas.addEventListener('dblclick', event => {
+    event.preventDefault();
+    if (state.activeMode === 'auto-review') { addPreviewVertex(event); return; }
+    if (state.activeMode === 'draw') finishDrawing();
+  });
   canvas.addEventListener('pointerdown', event => {
     if (event.button === 1 || state.spaceDown) {
       state.panning = { x: event.clientX, y: event.clientY, ox: state.offsetX, oy: state.offsetY };
       state.suppressClick = true;
       canvas.setPointerCapture(event.pointerId); canvas.style.cursor = 'grabbing'; event.preventDefault();
+      return;
+    }
+    if (state.activeMode === 'auto-review' && event.button === 0) {
+      const point = imagePoint(event);
+      const index = closestPreviewVertex(point, 12 / state.viewScale);
+      if (index >= 0) {
+        state.selectedPreviewVertex = index;
+        state.draggingPreviewVertex = index;
+        state.previewEditStart = state.autoPreview.points.map(p => ({ x: p.x, y: p.y }));
+        canvas.setPointerCapture(event.pointerId);
+        canvas.style.cursor = 'grabbing';
+        event.preventDefault();
+        render();
+      }
     }
   });
   canvas.addEventListener('pointermove', event => {
+    if (state.draggingPreviewVertex !== null && state.autoPreview) {
+      const point = imagePoint(event);
+      point.x = Math.max(0, Math.min(state.imageWidth, point.x));
+      point.y = Math.max(0, Math.min(state.imageHeight, point.y));
+      state.autoPreview.points[state.draggingPreviewVertex] = point;
+      render(); return;
+    }
     if (state.panning) {
       state.offsetX = state.panning.ox + event.clientX - state.panning.x;
       state.offsetY = state.panning.oy + event.clientY - state.panning.y;
@@ -552,7 +658,21 @@
       $('coordinatesReadout').textContent = insideImage(p) ? `Image: ${Math.round(p.x)} px, ${Math.round(p.y)} px` : 'Image coordinates appear here';
     }
   });
-  canvas.addEventListener('pointerup', () => { state.panning = null; canvas.style.cursor = state.activeMode === 'pan' ? 'grab' : 'crosshair'; });
+  canvas.addEventListener('pointerup', () => {
+    state.panning = null;
+    if (state.draggingPreviewVertex !== null) {
+      const start = state.previewEditStart || [];
+      const end = state.autoPreview?.points || [];
+      if (start.length && start.some((p, i) => p.x !== end[i]?.x || p.y !== end[i]?.y)) {
+        state.previewUndo.push(start);
+        if (state.previewUndo.length > 30) state.previewUndo.shift();
+        $('undoOutlineEdit').disabled = false;
+      }
+      state.draggingPreviewVertex = null;
+      state.previewEditStart = null;
+    }
+    canvas.style.cursor = state.activeMode === 'pan' ? 'grab' : 'crosshair';
+  });
   canvas.addEventListener('wheel', event => {
     if (!state.image) return;
     event.preventDefault();
@@ -565,6 +685,9 @@
   window.addEventListener('keydown', event => {
     if (event.code === 'Space' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) { state.spaceDown = true; event.preventDefault(); }
     if (event.key === 'Escape') setMode(null);
+    if ((event.key === 'Delete' || event.key === 'Backspace') && state.activeMode === 'auto-review' && state.selectedPreviewVertex !== null && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
+      event.preventDefault(); removeSelectedPreviewVertex();
+    }
     if (event.key === 'Enter' && state.activeMode === 'draw' && document.activeElement.tagName !== 'INPUT') finishDrawing();
     if ((event.key === 'Backspace' || event.key === 'Delete') && state.activeMode === 'draw' && document.activeElement.tagName !== 'INPUT') { state.draft.pop(); render(); }
   });

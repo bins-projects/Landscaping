@@ -140,7 +140,7 @@
     return best;
   }
 
-  function contourFromMask(mask, width, height) {
+  function contourFromMask(mask, width, height, simplificationTolerance = 2) {
     const w = Math.floor(width), h = Math.floor(height);
     const vertexWidth = w + 1;
     const edgeStarts = [];
@@ -191,7 +191,7 @@
       const area = Math.abs(loopArea(loop));
       if (area > bestArea) { bestArea = area; best = loop; }
     }
-    return simplify(best, 2);
+    return simplify(best, simplificationTolerance);
   }
 
   function directionOf(from, to, vertexWidth) {

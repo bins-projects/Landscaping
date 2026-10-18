@@ -68,6 +68,14 @@
         </select>
         <button class="button button-primary full-width auto-water-button" id="autoWaterButton" disabled>Automatically detect water</button>
         <p class="subtle auto-water-hint">Finds a water-like color region automatically. If you traced the property boundary, detection stays inside it.</p>
+        <div id="autoWaterControls" class="auto-water-controls" hidden>
+          <p class="subtle">Drag a dot to reshape the outline. Double-click the line to add a point. Select a point and press Delete to remove it.</p>
+          <div class="auto-water-actions">
+            <button class="button button-quiet" id="undoOutlineEdit" disabled>Undo edit</button>
+            <button class="button button-primary" id="acceptWater">Accept outline</button>
+            <button class="button button-quiet" id="cancelWater">Cancel</button>
+          </div>
+        </div>
         <label class="field-label" for="featureName">Feature name <span class="optional">optional</span></label>
         <input id="featureName" class="text-input" placeholder="e.g. Live oak">
         <label class="field-label" for="confidence">How certain is this trace?</label>
@@ -81,13 +89,6 @@
           <button class="button button-quiet" id="finishShape" disabled>Finish</button>
         </div>
         <p id="drawHelp" class="subtle">Load an image and set its scale to begin.</p>
-        <div id="autoWaterControls" class="auto-water-controls" hidden>
-          <p class="subtle">The dashed outline is the automatic result. Accept it to add the water feature to your map.</p>
-          <div class="auto-water-actions">
-            <button class="button button-primary" id="acceptWater">Accept outline</button>
-            <button class="button button-quiet" id="cancelWater">Cancel</button>
-          </div>
-        </div>
       </section>
 
       <section class="panel feature-panel">
