@@ -12,14 +12,15 @@
     viewScale: 1, offsetX: 0, offsetY: 0, dpr: 1, panning: null,
     navigationLocked: true,
     noticeTimer: null, spaceDown: false, suppressClick: false,
-    draggingPreviewVertex: null, selectedPreviewVertex: null, previewEditStart: null, previewUndo: []
+    draggingPreviewVertex: null, selectedPreviewVertex: null, previewEditStart: null, previewUndoRecorded: false,
+    undoStack: [], objectAnchor: null
   };
 
   const TYPES = {
     parcel: { label: 'Property boundary', color: '#e05b4d', shape: 'polygon' },
     building: { label: 'Building or structure', color: '#497bb6', shape: 'polygon' },
     hardscape: { label: 'Driveway or paved area', color: '#aa7e48', shape: 'polygon' },
-    water: { label: 'Pool or water feature', color: '#38a5bb', shape: 'polygon' },
+    water: { label: 'Water body', color: '#38a5bb', shape: 'polygon' },
     'existing-bed': { label: 'Existing planting bed', color: '#9271b5', shape: 'polygon' },
     'no-plant': { label: 'Utility or no-plant area', color: '#d29737', shape: 'polygon' },
     path: { label: 'Existing path or walk', color: '#766b5c', shape: 'line' },
@@ -27,12 +28,93 @@
     point: { label: 'Point feature', color: '#de7d4e', shape: 'point' }
   };
 
+  const OBJECT_KINDS = [
+    { group: 'Buildings and structures', items: [
+      ['house', 'House', 'building'], ['office', 'Office', 'building'], ['outbuilding', 'Outbuilding', 'building'],
+      ['shed', 'Shed', 'building'], ['garage', 'Garage', 'building'], ['pool-house', 'Pool house', 'building'],
+      ['pool-restroom', 'Pool restroom / bathroom', 'building'], ['clubhouse', 'Clubhouse', 'building'], ['pavilion', 'Pavilion', 'building'], ['other-building', 'Other building', 'building']
+    ]},
+    { group: 'Water', items: [
+      ['pond', 'Pond', 'water'], ['pool', 'Pool', 'water'], ['lake', 'Lake', 'water'], ['canal', 'Canal', 'water'],
+      ['stream', 'Stream', 'water'], ['fountain', 'Fountain', 'water'], ['other-water', 'Other water', 'water']
+    ]},
+    { group: 'Paths and paved areas', items: [
+      ['sidewalk', 'Sidewalk', 'hardscape'], ['path', 'Path or walkway', 'path'], ['footbridge', 'Footbridge', 'path'],
+      ['driveway', 'Driveway', 'hardscape'], ['patio', 'Patio or deck', 'hardscape'], ['parking', 'Parking area', 'hardscape'], ['other-paved', 'Other paved area', 'hardscape']
+    ]},
+    { group: 'Planting and vegetation', items: [
+      ['tree-canopy', 'Tree canopy', 'tree'], ['palm-canopy', 'Palm canopy', 'tree'], ['planting-bed', 'Planting bed', 'existing-bed'],
+      ['shoreline-plants', 'Shoreline planting', 'existing-bed'], ['lawn', 'Lawn or grass', 'existing-bed'], ['other-vegetation', 'Other vegetation', 'existing-bed']
+    ]},
+    { group: 'Boundaries and utilities', items: [
+      ['property-line', 'Property boundary', 'parcel'], ['fence', 'Fence', 'path'], ['shoreline-edge', 'Shoreline edge', 'parcel'],
+      ['utility-box', 'Utility box', 'no-plant'], ['drain', 'Drain or culvert', 'no-plant'], ['gate', 'Gate', 'point'], ['other-object', 'Other object', 'point']
+    ]}
+  ];
+
   function showNotice(message) {
     const el = $('mapNotice');
     el.textContent = message;
     el.classList.add('show');
     clearTimeout(state.noticeTimer);
     state.noticeTimer = setTimeout(() => el.classList.remove('show'), 2200);
+  }
+
+  function copyPoints(points) { return (points || []).map(p => ({ x: p.x, y: p.y })); }
+
+  function updateUndoButton() {
+    $('undoAction').disabled = state.undoStack.length === 0;
+    $('undoAction').title = state.undoStack.length ? `Undo ${state.undoStack.at(-1).label} (Ctrl+Z)` : 'Nothing to undo';
+  }
+
+  function pushUndo(label) {
+    state.undoStack.push({
+      label,
+      features: state.features.map(f => ({ ...f, points: copyPoints(f.points) })),
+      draft: copyPoints(state.draft),
+      autoPreview: state.autoPreview ? { ...state.autoPreview, points: copyPoints(state.autoPreview.points) } : null,
+      calibrationPoints: copyPoints(state.calibrationPoints),
+      calibration: state.calibration ? { ...state.calibration, points: copyPoints(state.calibration.points) } : null,
+      ftPerPixel: state.ftPerPixel,
+      activeMode: state.activeMode,
+      selectedPreviewVertex: state.selectedPreviewVertex,
+      featureType: $('featureType').value,
+      featureName: $('featureName').value,
+      confidence: $('confidence').value,
+      objectKind: $('objectKind').value,
+      objectName: $('objectName').value,
+      outlineDetail: $('outlineDetail').value
+    });
+    if (state.undoStack.length > 40) state.undoStack.shift();
+    updateUndoButton();
+  }
+
+  function undoLastAction() {
+    const snapshot = state.undoStack.pop();
+    if (!snapshot) return;
+    setMode(snapshot.activeMode);
+    state.features = snapshot.features;
+    state.draft = snapshot.draft;
+    state.autoPreview = snapshot.autoPreview;
+    state.calibrationPoints = snapshot.calibrationPoints;
+    state.calibration = snapshot.calibration;
+    state.ftPerPixel = snapshot.ftPerPixel;
+    state.selectedPreviewVertex = snapshot.selectedPreviewVertex;
+    $('featureType').value = snapshot.featureType;
+    $('featureName').value = snapshot.featureName;
+    $('confidence').value = snapshot.confidence;
+    $('objectKind').value = snapshot.objectKind;
+    $('objectName').value = snapshot.objectName;
+    $('outlineDetail').value = snapshot.outlineDetail;
+    $('outlineDetail').disabled = Boolean(state.autoPreview?.edited);
+    $('acceptFeature').disabled = !selectedObjectKind();
+    $('objectEditor').hidden = !state.autoPreview;
+    $('removeOutlinePoint').disabled = state.selectedPreviewVertex === null;
+    updateUndoButton();
+    updateScaleDisplay();
+    updateFeatureList();
+    updateNavigationUI();
+    render();
   }
 
   function updateProjectHeading() {
@@ -155,7 +237,7 @@
   }
 
   function drawFeature(feature) {
-    const spec = TYPES[feature.type] || TYPES.point;
+    const spec = feature.type ? (TYPES[feature.type] || TYPES.point) : { label: 'Detected outline', color: '#43896d', shape: 'polygon' };
     const pts = feature.points;
     ctx.save();
     ctx.lineWidth = 2.25 / state.viewScale;
@@ -173,7 +255,7 @@
       ctx.beginPath(); ctx.arc(pts[0].x, pts[0].y, 5 / state.viewScale, 0, Math.PI * 2); ctx.fillStyle = spec.color; ctx.fill(); ctx.stroke();
     }
     ctx.setLineDash([]);
-    const at = pts[0];
+    const at = featureLabelPoint(feature);
     if (at && feature.name) {
       const fontSize = 12 / state.viewScale;
       ctx.font = `600 ${fontSize}px system-ui, sans-serif`;
@@ -181,11 +263,61 @@
       const pad = 4 / state.viewScale;
       const tw = ctx.measureText(label).width;
       ctx.fillStyle = 'rgba(255,255,255,.9)';
-      ctx.fillRect(at.x + 7 / state.viewScale, at.y - 9 / state.viewScale, tw + pad * 2, fontSize + pad);
+      ctx.fillRect(at.x - tw / 2 - pad, at.y - fontSize / 2 - pad / 2, tw + pad * 2, fontSize + pad);
       ctx.fillStyle = '#26382d';
-      ctx.fillText(label, at.x + 7 / state.viewScale + pad, at.y + 1 / state.viewScale);
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(label, at.x, at.y);
     }
     ctx.restore();
+  }
+
+  function featureLabelPoint(feature) {
+    const points = feature.points || [];
+    if (!points.length) return null;
+    if (feature.geometry !== 'polygon' || points.length < 3) {
+      if (feature.geometry === 'line') return points[Math.floor(points.length / 2)];
+      return points[0];
+    }
+    let areaTwice = 0, cx = 0, cy = 0;
+    points.forEach((p, i) => {
+      const next = points[(i + 1) % points.length];
+      const cross = p.x * next.y - next.x * p.y;
+      areaTwice += cross; cx += (p.x + next.x) * cross; cy += (p.y + next.y) * cross;
+    });
+    const centroid = Math.abs(areaTwice) > 1e-7 ? { x: cx / (3 * areaTwice), y: cy / (3 * areaTwice) } : null;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    points.forEach(p => { minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); });
+    let best = null, bestClearance = -1;
+    const candidates = centroid ? [centroid] : [];
+    for (let gy = 1; gy < 12; gy++) for (let gx = 1; gx < 12; gx++) {
+      candidates.push({ x: minX + (maxX - minX) * gx / 12, y: minY + (maxY - minY) * gy / 12 });
+    }
+    candidates.forEach(candidate => {
+      if (!pointInPolygon(candidate, points)) return;
+      const clearance = distanceToPolygonEdge(candidate, points);
+      if (clearance > bestClearance) { best = candidate; bestClearance = clearance; }
+    });
+    return best || centroid || points[0];
+  }
+
+  function pointInPolygon(point, points) {
+    let inside = false;
+    for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+      const a = points[i], b = points[j];
+      if ((a.y > point.y) !== (b.y > point.y) && point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+    }
+    return inside;
+  }
+
+  function distanceToPolygonEdge(point, points) {
+    let nearest = Infinity;
+    for (let i = 0; i < points.length; i++) {
+      const a = points[i], b = points[(i + 1) % points.length];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / (dx * dx + dy * dy || 1)));
+      nearest = Math.min(nearest, Math.hypot(point.x - a.x - t * dx, point.y - a.y - t * dy));
+    }
+    return nearest;
   }
 
   function drawPreviewVertices() {
@@ -241,20 +373,12 @@
     status.classList.toggle('ready', ready);
     status.innerHTML = ready ? `<span class="status-dot"></span>Calibrated · ${formatNumber(1 / state.ftPerPixel)} image pixels per foot` : '<span class="status-dot"></span>Scale not set';
     $('scaleReadout').textContent = ready ? `Scale: 1 ft = ${formatNumber(1 / state.ftPerPixel)} px · 1 acre = 43,560 sq ft` : 'Scale optional · measurements shown in image pixels';
-    $('drawButton').disabled = !state.image;
     $('calibrateButton').disabled = !state.image || (state.activeMode && state.activeMode !== 'calibrate');
     $('exportMap').disabled = !state.image;
     $('saveProject').disabled = !state.image;
-    const canStartDetection = Boolean(state.image && (!state.activeMode || state.activeMode === 'draw' || state.activeMode === 'auto-review' || state.activeMode === 'auto-select'));
-    $('detectFeatureButton').disabled = !canStartDetection;
-    const reviewingFeature = state.activeMode === 'auto-review';
-    $('detectFeatureButton').textContent = state.activeMode === 'auto-select' ? 'Cancel feature detection' : reviewingFeature ? 'Cancel outline review' : 'Detect feature · click it on the map';
-    $('detectFeatureButton').classList.toggle('button-primary', !reviewingFeature && state.activeMode !== 'auto-select');
-    $('detectFeatureButton').classList.toggle('button-outline', reviewingFeature || state.activeMode === 'auto-select');
-    $('detectFeatureButton').title = !state.image ? 'Load an aerial image first.' : 'Start detection, then click inside the feature on the map.';
     $('drawButton').disabled = !state.image || (state.activeMode !== 'draw' && !$('featureType').value) || (state.activeMode && state.activeMode !== 'draw');
     if (!state.image) $('drawHelp').textContent = 'Load an image to start mapping. Scale is optional.';
-    else if (!state.activeMode) $('drawHelp').textContent = ready ? 'Choose a feature and trace it on the image. Scale can be changed anytime.' : 'Choose a feature and trace it on the image. Measurements use pixels until you set scale.';
+    else if (!state.activeMode) $('drawHelp').textContent = ready ? 'Click an object for an automatic outline, or choose a type below for manual tracing.' : 'Click an object for an automatic outline, or choose a type below for manual tracing. Scale is optional.';
   }
 
   function updateFeatureList() {
@@ -277,6 +401,7 @@
       return `<div class="feature-row"><span class="feature-swatch" style="background:${spec.color}"></span><div class="feature-meta"><b>${escapeHtml(f.name || spec.label)}</b><small>${spec.label} · ${f.confidence === 'estimated' ? 'estimated' : 'confirmed'}</small></div><span class="feature-area">${measure}</span><button class="delete-feature" data-delete="${i}" aria-label="Delete ${escapeHtml(f.name || spec.label)}" title="Delete">×</button></div>`;
     }).join('');
     list.querySelectorAll('[data-delete]').forEach(button => button.addEventListener('click', () => {
+      pushUndo(`delete ${state.features[Number(button.dataset.delete)]?.name || 'object'}`);
       state.features.splice(Number(button.dataset.delete), 1); updateFeatureList();
     }));
     render();
@@ -292,13 +417,11 @@
       state.selectedPreviewVertex = null;
       state.draggingPreviewVertex = null;
       state.previewEditStart = null;
-      state.previewUndo = [];
-      $('undoOutlineEdit').disabled = true;
       $('removeOutlinePoint').disabled = true;
     }
     state.activeMode = mode;
     state.draft = [];
-    $('autoFeatureControls').hidden = mode !== 'auto-review';
+    $('objectEditor').hidden = mode !== 'auto-review';
     state.calibrationPoints = [];
     const drawing = mode === 'draw';
     $('drawButton').textContent = drawing ? 'Cancel manual tracing' : 'Start manual tracing';
@@ -308,9 +431,9 @@
     updateNavigationUI();
     if (mode === 'draw') $('drawHelp').textContent = getDrawHelp();
     else if (mode === 'calibrate') $('drawHelp').textContent = 'Click the first and second ends of your known distance.';
-    else if (mode === 'auto-select') $('drawHelp').textContent = 'Click inside the feature you want to outline.';
-    else if (mode === 'auto-review') $('drawHelp').textContent = 'Choose a feature label, adjust the outline if needed, then accept it.';
-    else $('drawHelp').textContent = state.image ? 'Choose a feature and trace it on the image. Measurements use pixels until you set scale.' : 'Load an image to start mapping. Scale is optional.';
+    else if (mode === 'auto-select') $('drawHelp').textContent = 'Click an object on the map to outline it.';
+    else if (mode === 'auto-review') $('drawHelp').textContent = 'Choose the object type from the pop-up on the map.';
+    else $('drawHelp').textContent = state.image ? 'Click an object for an automatic outline, or choose a type below for manual tracing.' : 'Load an image to start mapping. Scale is optional.';
     updateScaleDisplay();
     render();
   }
@@ -325,7 +448,54 @@
   }
 
   function outlineTolerance(type) {
-    return ({ building: 2.5, water: 1.25, path: 1.25, hardscape: 2.5, parcel: 2.5, 'existing-bed': 2, 'no-plant': 2, tree: 2.5 })[type] ?? 2;
+    return ({ building: 2.5, water: 1.25, path: 1.25, hardscape: 2.5, parcel: 2.5, 'existing-bed': 2, 'no-plant': 2, tree: 2.5 })[type] ?? 2.5;
+  }
+
+  function populateObjectKinds() {
+    const select = $('objectKind');
+    OBJECT_KINDS.forEach(group => {
+      const optgroup = document.createElement('optgroup');
+      optgroup.label = group.group;
+      group.items.forEach(([value, label, type]) => {
+        const option = document.createElement('option');
+        option.value = value; option.textContent = label; option.dataset.type = type;
+        optgroup.appendChild(option);
+      });
+      select.appendChild(optgroup);
+    });
+  }
+
+  function selectedObjectKind() {
+    const option = $('objectKind').selectedOptions[0];
+    return option?.dataset.type ? { value: option.value, label: option.textContent, type: option.dataset.type } : null;
+  }
+
+  function updateObjectKind() {
+    const kind = selectedObjectKind();
+    $('acceptFeature').disabled = !kind;
+    if (!state.autoPreview || !kind) return;
+    state.autoPreview.type = kind.type;
+    state.autoPreview.name = $('objectName').value.trim() || kind.label;
+    if (!state.autoPreview.edited) {
+      const tolerance = outlineTolerance(kind.type);
+      $('outlineDetail').value = String(tolerance);
+      $('outlineDetailValue').textContent = `${formatNumber(tolerance)} px`;
+      if (state.autoPreview.contourSource) state.autoPreview.points = SiteSegmentation.simplifyContour(state.autoPreview.contourSource, tolerance);
+    }
+    if (!$('objectName').value.trim()) $('objectName').value = kind.label;
+    render();
+  }
+
+  function positionObjectEditor(anchor) {
+    const editor = $('objectEditor');
+    const x = state.offsetX + anchor.x * state.viewScale;
+    const y = state.offsetY + anchor.y * state.viewScale;
+    const width = Math.min(300, stage.clientWidth - 24);
+    const height = editor.offsetHeight || 250;
+    const left = Math.max(12, Math.min(stage.clientWidth - width - 12, x + 18));
+    const top = Math.max(12, Math.min(stage.clientHeight - height - 12, y - 30));
+    editor.style.left = `${left}px`;
+    editor.style.top = `${top}px`;
   }
 
   function runAutoFeatureTrace(seedPoint) {
@@ -349,7 +519,7 @@
       const result = SiteSegmentation.regionMask(pixels.data, workCanvas.width, workCanvas.height, seed.x, seed.y, 34, allowedMask);
       const contourSource = SiteSegmentation.contourFromMask(result.mask, workCanvas.width, workCanvas.height, .5)
         .map(p => ({ x: p.x * state.imageWidth / workCanvas.width, y: p.y * state.imageHeight / workCanvas.height }));
-      const type = $('featureType').value || 'water';
+      const type = null;
       const tolerance = outlineTolerance(type);
       $('outlineDetail').value = String(tolerance);
       $('outlineDetailValue').textContent = `${formatNumber(tolerance)} px`;
@@ -358,56 +528,43 @@
       if (result.count < 24 || points.length < 3) throw new Error('Could not find a clear color boundary there. Try clicking farther inside the feature.');
       state.autoPreview = {
         points, contourSource, edited: false, geometry: 'polygon', type,
-        name: $('featureName').value.trim(), confidence: $('confidence').value, pixel_count: result.count
+        name: '', confidence: $('confidence').value, pixel_count: result.count
       };
-      state.previewUndo = [];
+      state.objectAnchor = seedPoint;
+      $('objectKind').value = '';
+      $('objectName').value = '';
+      $('acceptFeature').disabled = true;
+      $('objectEditorTitle').textContent = 'Outline found — what is it?';
       setMode('auto-review');
-      $('undoOutlineEdit').disabled = true;
       $('removeOutlinePoint').disabled = true;
-      $('drawHelp').textContent = 'Choose a feature label, adjust the outline if needed, then accept it.';
-      showNotice('Feature outlined. Choose its label and review the border.');
+      positionObjectEditor(seedPoint);
+      showNotice('Outline found. Choose its type in the map pop-up.');
     } catch (error) {
       state.autoPreview = null;
-      setMode('auto-select');
+      setMode(null);
       showNotice(error.message || 'Automatic detection could not isolate that feature. Try another point.');
     }
   }
 
   function acceptAutoFeature() {
     if (!state.autoPreview) return;
-    const type = $('featureType').value;
-    if (!type) { showNotice('Choose a feature label before accepting the outline.'); return; }
-    const name = $('featureName').value.trim() || TYPES[type].label;
+    const kind = selectedObjectKind();
+    if (!kind) { showNotice('Choose what the object is in the map pop-up.'); return; }
+    const type = kind.type;
+    const name = $('objectName').value.trim() || kind.label;
+    pushUndo(`add ${name}`);
     state.features.push({
       id: crypto.randomUUID ? crypto.randomUUID() : `feature-${Date.now()}-${Math.random().toString(16).slice(2)}`,
       name, type, geometry: state.autoPreview.geometry || 'polygon', confidence: $('confidence').value,
       points: state.autoPreview.points
     });
-    state.autoPreview = null; $('featureName').value = '';
+    state.autoPreview = null; $('featureName').value = ''; $('objectName').value = '';
     setMode(null); updateFeatureList(); showNotice(`${name} added to this site.`);
   }
 
   function cancelAutoFeature() {
     state.autoPreview = null;
     setMode(null); render();
-  }
-
-  function savePreviewUndo() {
-    if (!state.autoPreview) return;
-    state.autoPreview.edited = true;
-    $('outlineDetail').disabled = true;
-    state.previewUndo.push(state.autoPreview.points.map(p => ({ x: p.x, y: p.y })));
-    if (state.previewUndo.length > 30) state.previewUndo.shift();
-    $('undoOutlineEdit').disabled = false;
-  }
-
-  function undoPreviewEdit() {
-    if (!state.previewUndo.length || !state.autoPreview) return;
-    state.autoPreview.points = state.previewUndo.pop();
-    state.selectedPreviewVertex = null;
-    $('undoOutlineEdit').disabled = state.previewUndo.length === 0;
-    $('removeOutlinePoint').disabled = true;
-    render();
   }
 
   function closestPreviewVertex(point, maxDistance) {
@@ -434,7 +591,9 @@
       if (distance < best.distance) best = { distance, index: i + 1, point: projected };
     }
     if (best.distance > 72 / state.viewScale) return;
-    savePreviewUndo();
+    pushUndo('add outline point');
+    state.autoPreview.edited = true;
+    $('outlineDetail').disabled = true;
     state.autoPreview.points.splice(best.index, 0, point);
     state.selectedPreviewVertex = best.index;
     $('removeOutlinePoint').disabled = false;
@@ -445,7 +604,9 @@
     if (!state.autoPreview || state.selectedPreviewVertex === null) return;
     const minimum = state.autoPreview.geometry === 'line' ? 2 : 3;
     if (state.autoPreview.points.length <= minimum) { showNotice(`This feature needs at least ${minimum} points.`); return; }
-    savePreviewUndo();
+    pushUndo('remove outline point');
+    state.autoPreview.edited = true;
+    $('outlineDetail').disabled = true;
     state.autoPreview.points.splice(state.selectedPreviewVertex, 1);
     state.selectedPreviewVertex = null;
     $('removeOutlinePoint').disabled = true;
@@ -462,6 +623,7 @@
       return;
     }
     const name = $('featureName').value.trim() || TYPES[type].label;
+    pushUndo(`add ${name}`);
     state.features.push({
       id: crypto.randomUUID ? crypto.randomUUID() : `feature-${Date.now()}-${Math.random().toString(16).slice(2)}`,
       name, type, geometry: shape, confidence: $('confidence').value,
@@ -480,6 +642,7 @@
     let measured;
     try { measured = SiteGeometry.calibrate(a, b, distance); }
     catch (error) { showNotice(error.message); return; }
+    pushUndo('set scale');
     const imagePixels = measured.pixelDistance;
     state.ftPerPixel = measured.feetPerPixel;
     state.calibration = { points: [a, b], distance_ft: distance, pixel_distance: +imagePixels.toFixed(3) };
@@ -494,6 +657,7 @@
     const p = imagePoint(event);
     if (!insideImage(p)) return;
     if (state.activeMode === 'calibrate') {
+      pushUndo('mark scale point');
       state.calibrationPoints.push(p);
       if (state.calibrationPoints.length === 2) completeCalibration();
       else render();
@@ -503,9 +667,14 @@
       runAutoFeatureTrace(p);
       return;
     }
+    if (!state.activeMode) {
+      runAutoFeatureTrace(p);
+      return;
+    }
     if (state.activeMode !== 'draw' || event.detail > 1) return;
     const type = $('featureType').value;
     const shape = TYPES[type].shape;
+    pushUndo('add trace point');
     state.draft.push(p);
     if (shape === 'point') finishDrawing();
     else if (shape === 'circle' && state.draft.length === 2) finishDrawing();
@@ -522,12 +691,12 @@
         state.image = image; state.imageData = reader.result; state.imageName = file.name;
         state.imageWidth = image.naturalWidth; state.imageHeight = image.naturalHeight;
         state.ftPerPixel = null; state.calibration = null; state.calibrationPoints = [];
-        state.features = []; state.draft = []; state.activeMode = null; state.autoPreview = null; state.hasFit = false; state.navigationLocked = true;
+        state.features = []; state.draft = []; state.activeMode = null; state.autoPreview = null; state.hasFit = false; state.navigationLocked = true; state.undoStack = [];
         setMode(null);
         $('emptyState').hidden = true;
         $('imageStatus').textContent = `${file.name} · ${image.naturalWidth.toLocaleString()} × ${image.naturalHeight.toLocaleString()} px`;
-        $('mapHint').textContent = 'Image loaded · start mapping whenever you’re ready';
-        resizeCanvas(); updateScaleDisplay(); updateFeatureList(); showNotice('Image loaded. Start outlining; scale is optional.');
+        $('mapHint').textContent = 'Image loaded · click any object to outline it';
+        resizeCanvas(); updateScaleDisplay(); updateFeatureList(); updateUndoButton(); showNotice('Image loaded. Click an object to outline it; scale is optional.');
       };
       image.onerror = () => showNotice('This image could not be opened. Try a PNG or JPG.');
       image.src = reader.result;
@@ -585,12 +754,12 @@
           state.ftPerPixel = Number(data.calibration?.feet_per_pixel) || null;
           state.calibration = data.calibration ? { points: data.calibration.points, distance_ft: data.calibration.distance_ft, pixel_distance: data.calibration.pixel_distance } : null;
           state.features = data.features.map(f => ({ id: f.id || `feature-${Date.now()}`, name: f.name, type: f.type, geometry: f.geometry, confidence: f.confidence, points: (f.points_image_px || []).map(p => ({ x: Number(p.x), y: Number(p.y) })) }));
-          state.activeMode = null; state.draft = []; state.autoPreview = null; state.hasFit = false; state.navigationLocked = true;
+          state.activeMode = null; state.draft = []; state.autoPreview = null; state.hasFit = false; state.navigationLocked = true; state.undoStack = [];
           setMode(null);
           $('emptyState').hidden = true;
           $('siteName').dispatchEvent(new Event('input'));
           $('imageStatus').textContent = `${state.imageName} · ${image.naturalWidth.toLocaleString()} × ${image.naturalHeight.toLocaleString()} px`;
-          resizeCanvas(); updateScaleDisplay(); updateFeatureList(); showNotice('Site project opened.');
+          resizeCanvas(); updateScaleDisplay(); updateFeatureList(); updateUndoButton(); showNotice('Site project opened.');
         };
         image.onerror = () => showNotice('The project image could not be restored.');
         image.src = data.image.data_url;
@@ -612,7 +781,13 @@
       if (f.geometry === 'line' && pts.length >= 2) { outCtx.beginPath(); outCtx.moveTo(pts[0].x,pts[0].y); pts.slice(1).forEach(p=>outCtx.lineTo(p.x,p.y)); outCtx.stroke(); }
       if (f.geometry === 'circle' && pts.length >= 2) { outCtx.beginPath(); outCtx.arc(pts[0].x,pts[0].y,Math.hypot(pts[1].x-pts[0].x,pts[1].y-pts[0].y),0,Math.PI*2); outCtx.fill(); outCtx.stroke(); }
       if (f.geometry === 'point' && pts.length) { outCtx.beginPath(); outCtx.arc(pts[0].x,pts[0].y,8,0,Math.PI*2); outCtx.fillStyle=spec.color; outCtx.fill(); }
-      if (f.name && pts[0]) { const size=Math.max(16, out.width/100); outCtx.setLineDash([]); outCtx.font=`600 ${size}px system-ui`; outCtx.fillStyle='#fff'; outCtx.fillText(f.name,pts[0].x+10,pts[0].y-10); outCtx.strokeStyle='rgba(0,0,0,.3)'; outCtx.lineWidth=2; outCtx.strokeText(f.name,pts[0].x+10,pts[0].y-10); outCtx.fillStyle='#203128'; outCtx.fillText(f.name,pts[0].x+10,pts[0].y-10); }
+      if (f.name && pts[0]) {
+        const at=featureLabelPoint(f), size=Math.max(16,out.width/100), pad=Math.max(5,size/3);
+        outCtx.setLineDash([]); outCtx.font=`600 ${size}px system-ui`; outCtx.textAlign='center'; outCtx.textBaseline='middle';
+        const labelWidth=outCtx.measureText(f.name).width;
+        outCtx.fillStyle='rgba(255,255,255,.9)'; outCtx.fillRect(at.x-labelWidth/2-pad,at.y-size/2-pad/2,labelWidth+pad*2,size+pad);
+        outCtx.fillStyle='#203128'; outCtx.fillText(f.name,at.x,at.y);
+      }
       outCtx.restore();
     });
     out.toBlob(blob => {
@@ -626,10 +801,10 @@
     if (hasSiteWork() && !confirm('Start a new site? Unsaved work in this tab will be cleared.')) return;
     state.image = null; state.imageData = ''; state.imageName = ''; state.imageWidth = 0; state.imageHeight = 0;
     state.ftPerPixel = null; state.calibration = null; state.calibrationPoints = []; state.features = []; state.draft = []; state.autoPreview = null;
-    state.activeMode = null; state.hasFit = false; state.offsetX = 0; state.offsetY = 0; state.navigationLocked = true;
+    state.activeMode = null; state.hasFit = false; state.offsetX = 0; state.offsetY = 0; state.navigationLocked = true; state.undoStack = [];
     $('siteName').value = 'Untitled Florida site'; $('siteLocation').value = '';
     $('imageStatus').textContent = 'No image loaded yet.'; $('emptyState').hidden = false;
-    setMode(null); updateProjectHeading(); updateScaleDisplay(); updateFeatureList(); render();
+    setMode(null); updateProjectHeading(); updateScaleDisplay(); updateFeatureList(); updateUndoButton(); render();
   }
 
   $('siteName').addEventListener('input', updateProjectHeading);
@@ -640,20 +815,18 @@
   $('calibrateButton').addEventListener('click', () => setMode(state.activeMode === 'calibrate' ? null : 'calibrate'));
   $('drawButton').addEventListener('click', () => setMode(state.activeMode === 'draw' ? null : 'draw'));
   $('finishShape').addEventListener('click', finishDrawing);
-  $('undoPoint').addEventListener('click', () => { if (state.draft.length) { state.draft.pop(); render(); } });
+  $('undoPoint').addEventListener('click', undoLastAction);
   $('featureType').addEventListener('change', () => {
-    if (state.autoPreview) {
-      state.autoPreview.type = $('featureType').value || 'water';
-      if (!state.autoPreview.edited && state.autoPreview.contourSource) {
-        const tolerance = outlineTolerance(state.autoPreview.type);
-        $('outlineDetail').value = String(tolerance);
-        $('outlineDetailValue').textContent = `${formatNumber(tolerance)} px`;
-        state.autoPreview.points = SiteSegmentation.simplifyContour(state.autoPreview.contourSource, tolerance);
-      }
-      render();
-    }
     if (state.activeMode === 'draw') $('drawHelp').textContent = getDrawHelp();
     updateScaleDisplay();
+  });
+  $('objectKind').addEventListener('change', () => {
+    const kind = selectedObjectKind();
+    $('objectName').value = kind?.label || '';
+    updateObjectKind();
+  });
+  $('objectName').addEventListener('input', () => {
+    if (state.autoPreview) { state.autoPreview.name = $('objectName').value.trim(); render(); }
   });
   $('outlineDetail').addEventListener('input', () => {
     const tolerance = Number($('outlineDetail').value);
@@ -662,16 +835,10 @@
     state.autoPreview.points = SiteSegmentation.simplifyContour(state.autoPreview.contourSource, tolerance);
     render();
   });
-  $('detectFeatureButton').addEventListener('click', () => {
-    if (state.activeMode === 'auto-review' || state.activeMode === 'auto-select') { cancelAutoFeature(); return; }
-    state.draft = [];
-    state.autoPreview = null;
-    setMode('auto-select');
-  });
-  $('undoOutlineEdit').addEventListener('click', undoPreviewEdit);
   $('removeOutlinePoint').addEventListener('click', removeSelectedPreviewVertex);
   $('acceptFeature').addEventListener('click', acceptAutoFeature);
   $('cancelFeature').addEventListener('click', cancelAutoFeature);
+  $('cancelFeatureText').addEventListener('click', cancelAutoFeature);
   $('saveProject').addEventListener('click', saveProject);
   $('loadProject').addEventListener('click', () => $('projectFile').click());
   $('projectFile').addEventListener('change', e => { loadProject(e.target.files[0]); e.target.value = ''; });
@@ -680,6 +847,9 @@
   $('fitMap').addEventListener('click', fitImage);
   $('zoomIn').addEventListener('click', () => zoomAt(1.2));
   $('zoomOut').addEventListener('click', () => zoomAt(1/1.2));
+  $('undoAction').addEventListener('click', undoLastAction);
+  populateObjectKinds();
+  updateUndoButton();
   $('mapLock').addEventListener('click', () => {
     state.navigationLocked = !state.navigationLocked;
     state.panning = null;
@@ -708,6 +878,7 @@
         $('removeOutlinePoint').disabled = false;
         state.draggingPreviewVertex = index;
         state.previewEditStart = state.autoPreview.points.map(p => ({ x: p.x, y: p.y }));
+        state.previewUndoRecorded = false;
         canvas.setPointerCapture(event.pointerId);
         canvas.style.cursor = 'grabbing';
         event.preventDefault();
@@ -720,6 +891,11 @@
       const point = imagePoint(event);
       point.x = Math.max(0, Math.min(state.imageWidth, point.x));
       point.y = Math.max(0, Math.min(state.imageHeight, point.y));
+      const original = state.previewEditStart?.[state.draggingPreviewVertex];
+      if (!state.previewUndoRecorded && original && (point.x !== original.x || point.y !== original.y)) {
+        pushUndo('reshape outline');
+        state.previewUndoRecorded = true;
+      }
       state.autoPreview.points[state.draggingPreviewVertex] = point;
       render(); return;
     }
@@ -743,15 +919,13 @@
     if (state.draggingPreviewVertex !== null) {
       const start = state.previewEditStart || [];
       const end = state.autoPreview?.points || [];
-      if (start.length && start.some((p, i) => p.x !== end[i]?.x || p.y !== end[i]?.y)) {
+      if (state.previewUndoRecorded && start.length && start.some((p, i) => p.x !== end[i]?.x || p.y !== end[i]?.y)) {
         state.autoPreview.edited = true;
         $('outlineDetail').disabled = true;
-        state.previewUndo.push(start);
-        if (state.previewUndo.length > 30) state.previewUndo.shift();
-        $('undoOutlineEdit').disabled = false;
       }
       state.draggingPreviewVertex = null;
       state.previewEditStart = null;
+      state.previewUndoRecorded = false;
     }
     updateNavigationUI();
   });
@@ -770,6 +944,7 @@
   window.addEventListener('resize', resizeCanvas);
   window.addEventListener('keydown', event => {
     if (event.code === 'Space' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) { state.spaceDown = true; event.preventDefault(); }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) { event.preventDefault(); undoLastAction(); }
     if (event.key === 'Escape') setMode(null);
     if ((event.key === 'Delete' || event.key === 'Backspace') && state.activeMode === 'auto-review' && state.selectedPreviewVertex !== null && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
       event.preventDefault(); removeSelectedPreviewVertex();

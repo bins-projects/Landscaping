@@ -45,34 +45,21 @@
 
       <section class="panel">
         <div class="step-title"><div><h2>Map features</h2><p>Outline buildings, water, paths, trees, utilities, and more.</p></div></div>
-        <label class="field-label" for="featureType">Feature label</label>
+        <label class="field-label" for="featureType">Manual tracing type</label>
         <select id="featureType" class="text-input">
           <option value="" selected>Choose after detection or before tracing</option>
           <option value="parcel">Property boundary · polygon</option>
           <option value="building">Building or structure · polygon</option>
           <option value="hardscape">Driveway, patio, or paved area · polygon</option>
-          <option value="water">Pool or water feature · polygon</option>
+          <option value="water">Pond, pool, or other water body · polygon</option>
           <option value="existing-bed">Existing planting bed · polygon</option>
           <option value="no-plant">Utility or no-plant area · polygon</option>
           <option value="path">Existing path or walk · line</option>
           <option value="tree">Tree canopy · circle</option>
           <option value="point">Utility, gate, or other point · marker</option>
         </select>
-        <button class="button button-primary full-width auto-water-button" id="detectFeatureButton" disabled>Detect feature · click it on the map</button>
-        <p class="subtle auto-water-hint">Click inside a pond, roof, sidewalk, tree canopy, or other clear feature. Buildings smooth small roof and shadow changes; water keeps finer curves.</p>
-        <div id="autoFeatureControls" class="auto-water-controls" hidden>
-          <p class="subtle">Drag a dot to reshape the outline. Double-click near the border to add a point where you click. Select a dot, then click Remove point.</p>
-          <label class="field-label" for="outlineDetail">Outline detail <span id="outlineDetailValue" class="optional">2.5 px</span></label>
-          <input id="outlineDetail" class="tolerance-slider" type="range" min="0.5" max="8" step="0.25" value="2.5">
-          <p class="subtle">Fine keeps more small bends; Clean smooths roof texture and shadows. Adjust before moving or adding points.</p>
-          <div class="auto-water-actions">
-            <button class="button button-quiet" id="undoOutlineEdit" disabled>Undo edit</button>
-            <button class="button button-quiet" id="removeOutlinePoint" disabled>Remove point</button>
-            <button class="button button-primary" id="acceptFeature">Accept outline</button>
-            <button class="button button-quiet" id="cancelFeature">Cancel</button>
-          </div>
-        </div>
-        <label class="field-label" for="featureName">Feature name <span class="optional">optional</span></label>
+        <p class="subtle auto-water-hint">Click a house, pond, sidewalk, tree, or other object directly on the map. Choose its type and add it from the pop-up on the image.</p>
+        <label class="field-label" for="featureName">Label for manual trace <span class="optional">optional</span></label>
         <input id="featureName" class="text-input" placeholder="e.g. Live oak">
         <label class="field-label" for="confidence">How certain is this trace?</label>
         <select id="confidence" class="text-input">
@@ -107,6 +94,7 @@
       <div class="map-toolbar">
         <div class="map-title"><span class="map-pin">◎</span><div><strong id="mapProjectTitle">Untitled Florida site</strong><small id="mapHint">Load an aerial image to begin mapping</small></div></div>
         <div class="map-tools">
+          <button class="button button-quiet map-lock-button" id="undoAction" disabled title="Undo last mapping action (Ctrl+Z)">Undo</button>
           <button class="button button-quiet map-lock-button" id="mapLock" aria-pressed="true" title="Unlock to zoom and drag the map">Unlock map</button>
           <button class="icon-button" id="zoomOut" aria-label="Zoom out" title="Zoom out">−</button>
           <span id="zoomLabel" class="zoom-label">100%</span>
@@ -117,6 +105,24 @@
       </div>
       <div id="mapStage" class="map-stage">
         <canvas id="mapCanvas" aria-label="Aerial image and traced site features"></canvas>
+        <div id="objectEditor" class="object-editor" hidden>
+          <div class="object-editor-heading"><strong id="objectEditorTitle">Detected object</strong><button class="object-close" id="cancelFeature" aria-label="Discard detected outline" title="Discard">×</button></div>
+          <label class="field-label" for="objectKind">What is this?</label>
+          <select id="objectKind" class="text-input"><option value="" selected>Choose an object type</option></select>
+          <label class="field-label" for="objectName">Map label <span class="optional">editable</span></label>
+          <input id="objectName" class="text-input" placeholder="Choose a specific type">
+          <details class="object-fix">
+            <summary>Fix this outline</summary>
+            <p class="subtle">Drag the dots. Double-click a border to add a point. Click a dot, then Remove point.</p>
+            <label class="field-label" for="outlineDetail">Outline detail <span id="outlineDetailValue" class="optional">2 px</span></label>
+            <input id="outlineDetail" class="tolerance-slider" type="range" min="0.5" max="8" step="0.25" value="2">
+            <button class="button button-quiet" id="removeOutlinePoint" disabled>Remove selected point</button>
+          </details>
+          <div class="object-editor-actions">
+            <button class="button button-primary" id="acceptFeature" disabled>Add to map</button>
+            <button class="button button-quiet" id="cancelFeatureText">Discard</button>
+          </div>
+        </div>
         <div id="emptyState" class="empty-state">
           <div class="empty-art" aria-hidden="true"><span>⌖</span><i></i><b></b></div>
           <h2>Your map starts with an aerial</h2>
