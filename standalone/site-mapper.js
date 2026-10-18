@@ -203,13 +203,13 @@
     $('calibrateButton').disabled = !state.image;
     $('exportMap').disabled = !state.image;
     $('saveProject').disabled = !state.image;
-    const canStartWaterTrace = Boolean(state.image && ready && (!state.activeMode || state.activeMode === 'auto-water'));
+    const canStartWaterTrace = Boolean(state.image && ready && (!state.activeMode || state.activeMode === 'draw' || state.activeMode === 'auto-review'));
     $('autoWaterButton').disabled = !canStartWaterTrace;
-    const choosingWaterSeed = state.activeMode === 'auto-water';
-    $('autoWaterButton').textContent = choosingWaterSeed ? 'Cancel water selection' : 'Auto-trace water · click pond';
-    $('autoWaterButton').classList.toggle('button-primary', choosingWaterSeed);
-    $('autoWaterButton').classList.toggle('button-outline', !choosingWaterSeed);
-    $('autoWaterButton').title = !state.image ? 'Load an aerial image first.' : !ready ? 'Calibrate the image scale first.' : state.activeMode && state.activeMode !== 'auto-water' ? 'Finish or cancel the current map action first.' : 'Choose Pool or water feature, then click this and click inside the water.';
+    const reviewingWater = state.activeMode === 'auto-review';
+    $('autoWaterButton').textContent = reviewingWater ? 'Cancel water preview' : 'Automatically detect water';
+    $('autoWaterButton').classList.toggle('button-primary', !reviewingWater);
+    $('autoWaterButton').classList.toggle('button-outline', reviewingWater);
+    $('autoWaterButton').title = !state.image ? 'Load an aerial image first.' : !ready ? 'Calibrate the image scale first.' : 'Automatically find the largest water-like color region in the image or mapped property.';
     if (!ready) $('drawHelp').textContent = state.image ? 'Calibrate the image scale before tracing so dimensions are real.' : 'Load an image and set its scale to begin.';
     else if (!state.activeMode) $('drawHelp').textContent = 'Choose a feature, then trace it on the map. Double-click or press Finish to close polygons.';
   }
@@ -250,15 +250,15 @@
     $('autoWaterControls').hidden = mode !== 'auto-review';
     state.calibrationPoints = [];
     const drawing = mode === 'draw';
-    $('drawButton').textContent = drawing ? 'Cancel tracing' : 'Start tracing';
+    $('drawButton').textContent = drawing ? 'Cancel manual tracing' : 'Start manual tracing';
     $('finishShape').disabled = !drawing;
     $('undoPoint').disabled = !drawing;
     $('calibrateButton').textContent = mode === 'calibrate' ? 'Cancel scale marking' : 'Mark scale on image';
     $('mapCanvas').style.cursor = mode === 'pan' ? 'grab' : 'crosshair';
     if (mode === 'draw') $('drawHelp').textContent = getDrawHelp();
     else if (mode === 'calibrate') $('drawHelp').textContent = 'Click the first and second ends of your known distance.';
-    else if (mode === 'auto-water') $('drawHelp').textContent = 'Click once inside the water on the aerial to generate its outline preview.';
-    else if (mode === 'auto-review') $('drawHelp').textContent = 'Review the dashed outline. Adjust tolerance if needed, then accept it.';
+    else if (mode === 'auto-water') $('drawHelp').textContent = 'Finding the largest water-like color region…';
+    else if (mode === 'auto-review') $('drawHelp').textContent = 'Review the automatically detected outline, then accept it.';
     else if (!state.ftPerPixel) $('drawHelp').textContent = state.image ? 'Calibrate the image scale before tracing so dimensions are real.' : 'Load an image and set its scale to begin.';
     else $('drawHelp').textContent = 'Choose a feature, then trace it on the map. Double-click or press Finish to close polygons.';
     updateScaleDisplay();
@@ -273,10 +273,10 @@
     return 'Click the feature location once to place a marker.';
   }
 
-  function runAutoWaterTrace(seed, tolerance) {
-    if (!state.image || !seed) return;
+  function runAutoWaterTrace() {
+    if (!state.image) return;
     try {
-      const maxDimension = 1200;
+      const maxDimension = 900;
       const ratio = Math.min(1, maxDimension / Math.max(state.imageWidth, state.imageHeight));
       const workCanvas = document.createElement('canvas');
       workCanvas.width = Math.max(3, Math.round(state.imageWidth * ratio));
@@ -284,28 +284,26 @@
       const workCtx = workCanvas.getContext('2d', { willReadFrequently: true });
       workCtx.drawImage(state.image, 0, 0, workCanvas.width, workCanvas.height);
       const pixels = workCtx.getImageData(0, 0, workCanvas.width, workCanvas.height);
-      const result = SiteSegmentation.regionMask(
-        pixels.data, workCanvas.width, workCanvas.height,
-        seed.x * workCanvas.width / state.imageWidth,
-        seed.y * workCanvas.height / state.imageHeight,
-        tolerance
-      );
+      const parcel = state.features.find(feature => feature.type === 'parcel' && feature.geometry === 'polygon');
+      const allowedPolygon = parcel?.points.map(p => ({
+        x: p.x * workCanvas.width / state.imageWidth,
+        y: p.y * workCanvas.height / state.imageHeight
+      })) || null;
+      const result = SiteSegmentation.detectWater(pixels.data, workCanvas.width, workCanvas.height, allowedPolygon);
       const points = SiteSegmentation.contourFromMask(result.mask, workCanvas.width, workCanvas.height)
         .map(p => ({ x: p.x * state.imageWidth / workCanvas.width, y: p.y * state.imageHeight / workCanvas.height }));
-      if (result.count < 24 || points.length < 3) throw new Error('That spot produced a very small region. Try a point farther inside the water.');
-      state.autoSeed = seed;
+      if (result.count < 24 || points.length < 3) throw new Error('Could not find a large clear water region. Try tracing it manually.');
       state.autoPreview = {
         points, type: 'water', name: $('featureName').value.trim() || 'Water feature',
         confidence: $('confidence').value, pixel_count: result.count,
-        tolerance: result.tolerance, coverage: result.count / (workCanvas.width * workCanvas.height)
+        coverage: result.coverage, detection: result.confidence
       };
-      $('waterTolerance').value = String(result.tolerance);
-      $('waterToleranceValue').textContent = String(result.tolerance);
       setMode('auto-review');
-      if (state.autoPreview.coverage > .8) showNotice('This outline covers most of the image. Lower tolerance or choose a point deeper in the water.');
-      else showNotice('Water outline ready to review.');
+      showNotice('Water detected. Review the outline and accept it.');
     } catch (error) {
-      showNotice(error.message || 'Could not trace that area. Try another point or trace it manually.');
+      state.autoPreview = null;
+      setMode(null);
+      showNotice(error.message || 'Automatic detection could not find clear water colors. You can trace the water manually.');
     }
   }
 
@@ -371,10 +369,6 @@
       state.calibrationPoints.push(p);
       if (state.calibrationPoints.length === 2) completeCalibration();
       else render();
-      return;
-    }
-    if (state.activeMode === 'auto-water') {
-      runAutoWaterTrace(p, Number($('waterTolerance').value));
       return;
     }
     if (state.activeMode !== 'draw' || event.detail > 1) return;
@@ -520,14 +514,14 @@
     updateScaleDisplay();
   });
   $('autoWaterButton').addEventListener('click', () => {
-    if (state.activeMode === 'auto-water') { cancelAutoWater(); return; }
+    if (state.activeMode === 'auto-review') { cancelAutoWater(); return; }
     if ($('featureType').value !== 'water') { showNotice('Choose “Pool or water feature” first.'); return; }
     if (!state.ftPerPixel) { showNotice('Set the image scale before tracing.'); return; }
+    state.draft = [];
     state.autoPreview = null;
     setMode('auto-water');
+    runAutoWaterTrace();
   });
-  $('waterTolerance').addEventListener('input', e => { $('waterToleranceValue').textContent = e.target.value; });
-  $('retryWater').addEventListener('click', () => runAutoWaterTrace(state.autoSeed, Number($('waterTolerance').value)));
   $('acceptWater').addEventListener('click', acceptAutoWater);
   $('cancelWater').addEventListener('click', cancelAutoWater);
   $('saveProject').addEventListener('click', saveProject);

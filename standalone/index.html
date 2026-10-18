@@ -53,7 +53,7 @@
       </section>
 
       <section class="panel">
-        <div class="step-title"><span class="step-number">3</span><div><h2>Trace site features</h2><p>Draw over the aerial. You can edit the map later.</p></div></div>
+        <div class="step-title"><span class="step-number">3</span><div><h2>Map site features</h2><p>Detect water automatically or trace other details by hand.</p></div></div>
         <label class="field-label" for="featureType">What are you tracing?</label>
         <select id="featureType" class="text-input">
           <option value="parcel">Property boundary · polygon</option>
@@ -66,6 +66,8 @@
           <option value="tree">Tree canopy · circle</option>
           <option value="point">Utility, gate, or other point · marker</option>
         </select>
+        <button class="button button-primary full-width auto-water-button" id="autoWaterButton" disabled>Automatically detect water</button>
+        <p class="subtle auto-water-hint">Finds a water-like color region automatically. If you traced the property boundary, detection stays inside it.</p>
         <label class="field-label" for="featureName">Feature name <span class="optional">optional</span></label>
         <input id="featureName" class="text-input" placeholder="e.g. Live oak">
         <label class="field-label" for="confidence">How certain is this trace?</label>
@@ -74,18 +76,14 @@
           <option value="measured">Measured or confirmed</option>
         </select>
         <div class="drawing-actions">
-          <button class="button button-primary full-width" id="drawButton" disabled>Start tracing</button>
+          <button class="button button-outline full-width" id="drawButton" disabled>Start manual tracing</button>
           <button class="button button-quiet" id="undoPoint" disabled title="Remove last point">Undo point</button>
           <button class="button button-quiet" id="finishShape" disabled>Finish</button>
         </div>
         <p id="drawHelp" class="subtle">Load an image and set its scale to begin.</p>
-        <button class="button button-outline full-width auto-water-button" id="autoWaterButton" disabled>Auto-trace water · click pond</button>
         <div id="autoWaterControls" class="auto-water-controls" hidden>
-          <label class="field-label" for="waterTolerance">Outline tolerance <span id="waterToleranceValue" class="optional">42</span></label>
-          <input id="waterTolerance" class="tolerance-slider" type="range" min="12" max="105" step="3" value="42">
-          <p class="subtle">Lower follows similar water colors more tightly; higher includes more variation.</p>
+          <p class="subtle">The dashed outline is the automatic result. Accept it to add the water feature to your map.</p>
           <div class="auto-water-actions">
-            <button class="button button-quiet" id="retryWater">Apply</button>
             <button class="button button-primary" id="acceptWater">Accept outline</button>
             <button class="button button-quiet" id="cancelWater">Cancel</button>
           </div>

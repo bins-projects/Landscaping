@@ -1,7 +1,7 @@
 ((root) => {
   'use strict';
 
-  function regionMask(data, width, height, seedX, seedY, tolerance = 42) {
+  function regionMask(data, width, height, seedX, seedY, tolerance = 42, allowedMask = null) {
     const w = Math.floor(width), h = Math.floor(height);
     const sx = Math.floor(seedX), sy = Math.floor(seedY);
     if (!data || data.length < w * h * 4 || w < 3 || h < 3) throw new TypeError('A valid image is required.');
@@ -31,10 +31,11 @@
       return dr * dr + dg * dg + db * db <= maxEdgeDistance2;
     };
     const start = sy * w + sx;
+    if (allowedMask && !allowedMask[start]) throw new RangeError('Choose a point inside the mapped area.');
     let head = 0, tail = 0;
     mask[start] = 1; queue[tail++] = start;
     const enqueue = (n, p) => {
-      if (n >= 0 && !mask[n] && seedMatches(n) && edgeMatches(p, n)) {
+      if (n >= 0 && (!allowedMask || allowedMask[n]) && !mask[n] && seedMatches(n) && edgeMatches(p, n)) {
         mask[n] = 1; queue[tail++] = n;
       }
     };
@@ -46,6 +47,97 @@
       enqueue(p + w < w * h ? p + w : -1, p);
     }
     return { mask, count: tail, seed: { x: sx, y: sy }, tolerance: tol };
+  }
+
+  function polygonMask(width, height, polygon) {
+    const w = Math.floor(width), h = Math.floor(height);
+    if (!Array.isArray(polygon) || polygon.length < 3) return null;
+    const mask = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) {
+      const scanY = y + .5, intersections = [];
+      for (let i = 0; i < polygon.length; i++) {
+        const a = polygon[i], b = polygon[(i + 1) % polygon.length];
+        if ((a.y <= scanY && b.y > scanY) || (b.y <= scanY && a.y > scanY)) {
+          intersections.push(a.x + (scanY - a.y) * (b.x - a.x) / (b.y - a.y));
+        }
+      }
+      intersections.sort((a, b) => a - b);
+      for (let i = 0; i + 1 < intersections.length; i += 2) {
+        const left = Math.max(0, Math.ceil(intersections[i] - .5));
+        const right = Math.min(w - 1, Math.floor(intersections[i + 1] - .5));
+        for (let x = left; x <= right; x++) mask[y * w + x] = 1;
+      }
+    }
+    return mask;
+  }
+
+  function detectWater(data, width, height, allowedPolygon = null) {
+    const w = Math.floor(width), h = Math.floor(height);
+    if (!data || data.length < w * h * 4 || w < 3 || h < 3) throw new TypeError('A valid image is required.');
+    const allowedMask = polygonMask(w, h, allowedPolygon);
+    const inArea = i => !allowedMask || allowedMask[i] === 1;
+    let allowedCount = 0;
+    if (allowedMask) for (const v of allowedMask) allowedCount += v;
+    else allowedCount = w * h;
+    if (allowedCount < 100) throw new Error('The mapped boundary is too small to search.');
+
+    // Rank possible seed pixels by darkness, local color consistency, and blue water color.
+    // The user no longer needs to guess a point inside the pond.
+    const candidates = [];
+    const step = Math.max(1, Math.floor(Math.max(w, h) / 500));
+    for (let y = 2; y < h - 2; y += step) for (let x = 2; x < w - 2; x += step) {
+      const index = y * w + x;
+      if (!inArea(index)) continue;
+      const p = index * 4, r = data[p], g = data[p + 1], b = data[p + 2];
+      let variation = 0, neighbors = 0;
+      for (const n of [index - 1, index + 1, index - w, index + w]) {
+        if (!inArea(n)) continue;
+        const q = n * 4;
+        variation += (Math.abs(r - data[q]) + Math.abs(g - data[q + 1]) + Math.abs(b - data[q + 2])) / 3;
+        neighbors++;
+      }
+      if (!neighbors) continue;
+      variation /= neighbors;
+      const luminance = .2126 * r + .7152 * g + .0722 * b;
+      const blueBonus = Math.max(0, b - r - 8) * .18;
+      candidates.push({ x, y, rank: luminance + variation * 1.1 - blueBonus });
+    }
+    candidates.sort((a, b) => a.rank - b.rank);
+
+    const seeds = [];
+    const spacing = Math.max(8, Math.floor(Math.min(w, h) * .025));
+    for (const c of candidates) {
+      if (seeds.every(s => (s.x - c.x) ** 2 + (s.y - c.y) ** 2 > spacing ** 2)) seeds.push(c);
+      if (seeds.length === 7) break;
+    }
+    if (!seeds.length) throw new Error('No suitable water colors were found inside the mapped area.');
+
+    let best = null, bestScore = -Infinity;
+    for (const seed of seeds) for (const tolerance of [30, 45, 60, 78]) {
+      let result;
+      try { result = regionMask(data, w, h, seed.x, seed.y, tolerance, allowedMask); }
+      catch (_) { continue; }
+      const ratio = result.count / allowedCount;
+      if (ratio < .012 || ratio > .78) continue;
+      let luminance = 0, edge = 0, samples = 0;
+      for (let i = 0; i < result.mask.length; i++) if (result.mask[i]) {
+        const p = i * 4;
+        luminance += .2126 * data[p] + .7152 * data[p + 1] + .0722 * data[p + 2];
+        const x = i % w, y = Math.floor(i / w);
+        for (const n of [x > 0 ? i - 1 : -1, x + 1 < w ? i + 1 : -1, y > 0 ? i - w : -1, y + 1 < h ? i + w : -1]) {
+          if (n < 0 || (allowedMask && !allowedMask[n])) continue;
+          const q = n * 4;
+          edge += (Math.abs(data[p] - data[q]) + Math.abs(data[p + 1] - data[q + 1]) + Math.abs(data[p + 2] - data[q + 2])) / 3;
+          samples++;
+        }
+      }
+      luminance /= result.count;
+      const texture = samples ? edge / samples : 255;
+      const score = Math.sqrt(ratio) * (1 + Math.max(0, 150 - luminance) / 260) / (1 + texture / 220) / (1 + tolerance / 35);
+      if (score > bestScore) { bestScore = score; best = { ...result, coverage: ratio, confidence: score > .5 ? 'likely' : 'low' }; }
+    }
+    if (!best) throw new Error('Could not isolate a clear water region. Try tracing the water manually.');
+    return best;
   }
 
   function contourFromMask(mask, width, height) {
@@ -145,7 +237,7 @@
     return dx * dx + dy * dy;
   }
 
-  const api = { regionMask, contourFromMask };
+  const api = { regionMask, contourFromMask, detectWater, polygonMask };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.SiteSegmentation = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);
