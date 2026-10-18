@@ -123,7 +123,7 @@
     ctx.scale(state.viewScale, state.viewScale);
     ctx.drawImage(state.image, 0, 0, state.imageWidth, state.imageHeight);
     state.features.forEach(drawFeature);
-    if (state.autoPreview) drawFeature({ ...state.autoPreview, geometry: 'polygon' });
+    if (state.autoPreview) drawFeature({ ...state.autoPreview, geometry: state.autoPreview.geometry || 'polygon' });
     if (state.autoPreview) drawPreviewVertices();
     if (state.activeMode === 'draw' && state.draft.length) drawDraft();
     if (state.activeMode === 'calibrate' && state.calibrationPoints.length) drawCalibrationDraft();
@@ -218,16 +218,17 @@
     status.innerHTML = ready ? `<span class="status-dot"></span>Calibrated · ${formatNumber(1 / state.ftPerPixel)} image pixels per foot` : '<span class="status-dot"></span>Scale not set';
     $('scaleReadout').textContent = ready ? `Scale: 1 ft = ${formatNumber(1 / state.ftPerPixel)} px · 1 acre = 43,560 sq ft` : 'Scale optional · measurements shown in image pixels';
     $('drawButton').disabled = !state.image;
-    $('calibrateButton').disabled = !state.image;
+    $('calibrateButton').disabled = !state.image || (state.activeMode && state.activeMode !== 'calibrate');
     $('exportMap').disabled = !state.image;
     $('saveProject').disabled = !state.image;
-    const canStartWaterTrace = Boolean(state.image && (!state.activeMode || state.activeMode === 'draw' || state.activeMode === 'auto-review'));
-    $('autoWaterButton').disabled = !canStartWaterTrace;
-    const reviewingWater = state.activeMode === 'auto-review';
-    $('autoWaterButton').textContent = reviewingWater ? 'Cancel water preview' : 'Automatically detect water';
-    $('autoWaterButton').classList.toggle('button-primary', !reviewingWater);
-    $('autoWaterButton').classList.toggle('button-outline', reviewingWater);
-    $('autoWaterButton').title = !state.image ? 'Load an aerial image first.' : 'Automatically find the largest water-like color region in the image or mapped property.';
+    const canStartDetection = Boolean(state.image && (!state.activeMode || state.activeMode === 'draw' || state.activeMode === 'auto-review' || state.activeMode === 'auto-select'));
+    $('detectFeatureButton').disabled = !canStartDetection;
+    const reviewingFeature = state.activeMode === 'auto-review';
+    $('detectFeatureButton').textContent = state.activeMode === 'auto-select' ? 'Cancel feature detection' : reviewingFeature ? 'Cancel outline review' : 'Detect feature · click it on the map';
+    $('detectFeatureButton').classList.toggle('button-primary', !reviewingFeature && state.activeMode !== 'auto-select');
+    $('detectFeatureButton').classList.toggle('button-outline', reviewingFeature || state.activeMode === 'auto-select');
+    $('detectFeatureButton').title = !state.image ? 'Load an aerial image first.' : 'Start detection, then click inside the feature on the map.';
+    $('drawButton').disabled = !state.image || (state.activeMode !== 'draw' && !$('featureType').value) || (state.activeMode && state.activeMode !== 'draw');
     if (!state.image) $('drawHelp').textContent = 'Load an image to start mapping. Scale is optional.';
     else if (!state.activeMode) $('drawHelp').textContent = ready ? 'Choose a feature and trace it on the image. Scale can be changed anytime.' : 'Choose a feature and trace it on the image. Measurements use pixels until you set scale.';
   }
@@ -273,7 +274,7 @@
     }
     state.activeMode = mode;
     state.draft = [];
-    $('autoWaterControls').hidden = mode !== 'auto-review';
+    $('autoFeatureControls').hidden = mode !== 'auto-review';
     state.calibrationPoints = [];
     const drawing = mode === 'draw';
     $('drawButton').textContent = drawing ? 'Cancel manual tracing' : 'Start manual tracing';
@@ -283,14 +284,15 @@
     $('mapCanvas').style.cursor = mode === 'pan' ? 'grab' : 'crosshair';
     if (mode === 'draw') $('drawHelp').textContent = getDrawHelp();
     else if (mode === 'calibrate') $('drawHelp').textContent = 'Click the first and second ends of your known distance.';
-    else if (mode === 'auto-water') $('drawHelp').textContent = 'Finding the largest water-like color region…';
-    else if (mode === 'auto-review') $('drawHelp').textContent = 'Review the automatically detected outline, then accept it.';
+    else if (mode === 'auto-select') $('drawHelp').textContent = 'Click inside the feature you want to outline.';
+    else if (mode === 'auto-review') $('drawHelp').textContent = 'Choose a feature label, adjust the outline if needed, then accept it.';
     else $('drawHelp').textContent = state.image ? 'Choose a feature and trace it on the image. Measurements use pixels until you set scale.' : 'Load an image to start mapping. Scale is optional.';
     updateScaleDisplay();
     render();
   }
 
   function getDrawHelp() {
+    if (!$('featureType').value) return 'Choose a feature label, then start manual tracing.';
     const shape = TYPES[$('featureType').value].shape;
     if (shape === 'polygon') return 'Click around the feature boundary; double-click or press Finish to close it.';
     if (shape === 'line') return 'Click along the curve or path; double-click or press Finish to end the line.';
@@ -298,10 +300,10 @@
     return 'Click the feature location once to place a marker.';
   }
 
-  function runAutoWaterTrace() {
-    if (!state.image) return;
+  function runAutoFeatureTrace(seedPoint) {
+    if (!state.image || !seedPoint) return;
     try {
-      const maxDimension = 900;
+      const maxDimension = 1600;
       const ratio = Math.min(1, maxDimension / Math.max(state.imageWidth, state.imageHeight));
       const workCanvas = document.createElement('canvas');
       workCanvas.width = Math.max(3, Math.round(state.imageWidth * ratio));
@@ -314,41 +316,44 @@
         x: p.x * workCanvas.width / state.imageWidth,
         y: p.y * workCanvas.height / state.imageHeight
       })) || null;
-      const result = SiteSegmentation.detectWater(pixels.data, workCanvas.width, workCanvas.height, allowedPolygon);
-      const points = SiteSegmentation.contourFromMask(result.mask, workCanvas.width, workCanvas.height, 15)
+      const allowedMask = SiteSegmentation.polygonMask(workCanvas.width, workCanvas.height, allowedPolygon);
+      const seed = { x: seedPoint.x * workCanvas.width / state.imageWidth, y: seedPoint.y * workCanvas.height / state.imageHeight };
+      const result = SiteSegmentation.regionMask(pixels.data, workCanvas.width, workCanvas.height, seed.x, seed.y, 34, allowedMask);
+      const points = SiteSegmentation.contourFromMask(result.mask, workCanvas.width, workCanvas.height, 1.25)
         .map(p => ({ x: p.x * state.imageWidth / workCanvas.width, y: p.y * state.imageHeight / workCanvas.height }));
-      if (result.count < 24 || points.length < 3) throw new Error('Could not find a large clear water region. Try tracing it manually.');
+      if (result.count < 24 || points.length < 3) throw new Error('Could not find a clear color boundary there. Try clicking farther inside the feature.');
       state.autoPreview = {
-        points, type: 'water', name: $('featureName').value.trim() || 'Water feature',
-        confidence: $('confidence').value, pixel_count: result.count,
-        coverage: result.coverage, detection: result.confidence
+        points, geometry: 'polygon', type: $('featureType').value || 'water',
+        name: $('featureName').value.trim(), confidence: $('confidence').value, pixel_count: result.count
       };
       state.previewUndo = [];
       setMode('auto-review');
       $('undoOutlineEdit').disabled = true;
       $('removeOutlinePoint').disabled = true;
-      $('drawHelp').textContent = 'Drag a point to reshape the outline. Double-click the line to add a point; select one and press Delete to remove it.';
-      showNotice('Water detected. Review the outline and accept it.');
+      $('drawHelp').textContent = 'Choose a feature label, adjust the outline if needed, then accept it.';
+      showNotice('Feature outlined. Choose its label and review the border.');
     } catch (error) {
       state.autoPreview = null;
-      setMode(null);
-      showNotice(error.message || 'Automatic detection could not find clear water colors. You can trace the water manually.');
+      setMode('auto-select');
+      showNotice(error.message || 'Automatic detection could not isolate that feature. Try another point.');
     }
   }
 
-  function acceptAutoWater() {
+  function acceptAutoFeature() {
     if (!state.autoPreview) return;
-    const name = $('featureName').value.trim() || 'Water feature';
+    const type = $('featureType').value;
+    if (!type) { showNotice('Choose a feature label before accepting the outline.'); return; }
+    const name = $('featureName').value.trim() || TYPES[type].label;
     state.features.push({
       id: crypto.randomUUID ? crypto.randomUUID() : `feature-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      name, type: 'water', geometry: 'polygon', confidence: $('confidence').value,
+      name, type, geometry: state.autoPreview.geometry || 'polygon', confidence: $('confidence').value,
       points: state.autoPreview.points
     });
     state.autoPreview = null; $('featureName').value = '';
     setMode(null); updateFeatureList(); showNotice(`${name} added to this site.`);
   }
 
-  function cancelAutoWater() {
+  function cancelAutoFeature() {
     state.autoPreview = null;
     setMode(null); render();
   }
@@ -380,8 +385,9 @@
   }
 
   function addPreviewVertex(event) {
-    if (!state.autoPreview || state.autoPreview.points.length >= 500) return;
+    if (!state.autoPreview) return;
     const point = imagePoint(event), points = state.autoPreview.points;
+    if (!insideImage(point)) return;
     let best = { distance: Infinity, index: -1, point: null };
     for (let i = 0; i < points.length; i++) {
       const a = points[i], b = points[(i + 1) % points.length];
@@ -391,9 +397,9 @@
       const distance = Math.hypot(point.x - projected.x, point.y - projected.y);
       if (distance < best.distance) best = { distance, index: i + 1, point: projected };
     }
-    if (best.distance > 18 / state.viewScale) return;
+    if (best.distance > 72 / state.viewScale) return;
     savePreviewUndo();
-    state.autoPreview.points.splice(best.index, 0, best.point);
+    state.autoPreview.points.splice(best.index, 0, point);
     state.selectedPreviewVertex = best.index;
     $('removeOutlinePoint').disabled = false;
     render();
@@ -401,7 +407,8 @@
 
   function removeSelectedPreviewVertex() {
     if (!state.autoPreview || state.selectedPreviewVertex === null) return;
-    if (state.autoPreview.points.length <= 3) { showNotice('An outline needs at least 3 points.'); return; }
+    const minimum = state.autoPreview.geometry === 'line' ? 2 : 3;
+    if (state.autoPreview.points.length <= minimum) { showNotice(`This feature needs at least ${minimum} points.`); return; }
     savePreviewUndo();
     state.autoPreview.points.splice(state.selectedPreviewVertex, 1);
     state.selectedPreviewVertex = null;
@@ -454,6 +461,10 @@
       state.calibrationPoints.push(p);
       if (state.calibrationPoints.length === 2) completeCalibration();
       else render();
+      return;
+    }
+    if (state.activeMode === 'auto-select') {
+      runAutoFeatureTrace(p);
       return;
     }
     if (state.activeMode !== 'draw' || event.detail > 1) return;
@@ -595,21 +606,20 @@
   $('finishShape').addEventListener('click', finishDrawing);
   $('undoPoint').addEventListener('click', () => { if (state.draft.length) { state.draft.pop(); render(); } });
   $('featureType').addEventListener('change', () => {
+    if (state.autoPreview) { state.autoPreview.type = $('featureType').value || 'water'; render(); }
     if (state.activeMode === 'draw') $('drawHelp').textContent = getDrawHelp();
     updateScaleDisplay();
   });
-  $('autoWaterButton').addEventListener('click', () => {
-    if (state.activeMode === 'auto-review') { cancelAutoWater(); return; }
-    if ($('featureType').value !== 'water') { showNotice('Choose “Pool or water feature” first.'); return; }
+  $('detectFeatureButton').addEventListener('click', () => {
+    if (state.activeMode === 'auto-review' || state.activeMode === 'auto-select') { cancelAutoFeature(); return; }
     state.draft = [];
     state.autoPreview = null;
-    setMode('auto-water');
-    runAutoWaterTrace();
+    setMode('auto-select');
   });
   $('undoOutlineEdit').addEventListener('click', undoPreviewEdit);
   $('removeOutlinePoint').addEventListener('click', removeSelectedPreviewVertex);
-  $('acceptWater').addEventListener('click', acceptAutoWater);
-  $('cancelWater').addEventListener('click', cancelAutoWater);
+  $('acceptFeature').addEventListener('click', acceptAutoFeature);
+  $('cancelFeature').addEventListener('click', cancelAutoFeature);
   $('saveProject').addEventListener('click', saveProject);
   $('loadProject').addEventListener('click', () => $('projectFile').click());
   $('projectFile').addEventListener('change', e => { loadProject(e.target.files[0]); e.target.value = ''; });

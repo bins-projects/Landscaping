@@ -44,6 +44,23 @@ const automatic = detectWater(autoPixels, autoWidth, autoHeight, parcel);
 assert.equal(automatic.mask[51 * autoWidth + 62], 1);
 assert.equal(automatic.mask[12 * autoWidth + 12], 0);
 assert.ok(automatic.coverage > .12 && automatic.coverage < .5);
-assert.ok(contourFromMask(automatic.mask, autoWidth, autoHeight).length >= 4);
+const detailedContour = contourFromMask(automatic.mask, autoWidth, autoHeight, 1.25);
+const coarseContour = contourFromMask(automatic.mask, autoWidth, autoHeight, 15);
+assert.ok(detailedContour.length >= 4);
+assert.ok(detailedContour.length > coarseContour.length, 'fine contour keeps curved boundary detail');
+
+// A seed click can isolate and outline a winding sidewalk-like color region.
+const walkWidth = 100, walkHeight = 80;
+const walkPixels = new Uint8ClampedArray(walkWidth * walkHeight * 4);
+for (let y = 0; y < walkHeight; y++) for (let x = 0; x < walkWidth; x++) {
+  const centerX = 36 + .01 * (y - 40) ** 2;
+  const onWalk = Math.abs(x - centerX) <= 3;
+  const color = onWalk ? [190, 190, 180] : [90, 145, 86];
+  const i = (y * walkWidth + x) * 4;
+  walkPixels[i] = color[0]; walkPixels[i + 1] = color[1]; walkPixels[i + 2] = color[2]; walkPixels[i + 3] = 255;
+}
+const walkRegion = regionMask(walkPixels, walkWidth, walkHeight, 36, 40, 30);
+assert.ok(walkRegion.count > 400, 'seeded selection follows the continuous sidewalk region');
+assert.ok(contourFromMask(walkRegion.mask, walkWidth, walkHeight, 1.25).length > 10, 'winding sidewalk outline retains curved detail');
 
 console.log('site segmentation tests passed');

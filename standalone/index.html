@@ -45,8 +45,9 @@
 
       <section class="panel">
         <div class="step-title"><div><h2>Map features</h2><p>Outline buildings, water, paths, trees, utilities, and more.</p></div></div>
-        <label class="field-label" for="featureType">Feature type</label>
+        <label class="field-label" for="featureType">Feature label</label>
         <select id="featureType" class="text-input">
+          <option value="" selected>Choose after detection or before tracing</option>
           <option value="parcel">Property boundary · polygon</option>
           <option value="building">Building or structure · polygon</option>
           <option value="hardscape">Driveway, patio, or paved area · polygon</option>
@@ -57,15 +58,15 @@
           <option value="tree">Tree canopy · circle</option>
           <option value="point">Utility, gate, or other point · marker</option>
         </select>
-        <button class="button button-primary full-width auto-water-button" id="autoWaterButton" disabled>Automatically detect water</button>
-        <p class="subtle auto-water-hint">Finds a water-like color region automatically. If you traced the property boundary, detection stays inside it.</p>
-        <div id="autoWaterControls" class="auto-water-controls" hidden>
-          <p class="subtle">Drag a dot to reshape the outline. Double-click the line to add a point. Select a dot, then click Remove point.</p>
+        <button class="button button-primary full-width auto-water-button" id="detectFeatureButton" disabled>Detect feature · click it on the map</button>
+        <p class="subtle auto-water-hint">Click inside a pond, roof, sidewalk, tree canopy, or other clear feature. Choose its label after reviewing the outline.</p>
+        <div id="autoFeatureControls" class="auto-water-controls" hidden>
+          <p class="subtle">Drag a dot to reshape the outline. Double-click near the border to add a point where you click. Select a dot, then click Remove point.</p>
           <div class="auto-water-actions">
             <button class="button button-quiet" id="undoOutlineEdit" disabled>Undo edit</button>
             <button class="button button-quiet" id="removeOutlinePoint" disabled>Remove point</button>
-            <button class="button button-primary" id="acceptWater">Accept outline</button>
-            <button class="button button-quiet" id="cancelWater">Cancel</button>
+            <button class="button button-primary" id="acceptFeature">Accept outline</button>
+            <button class="button button-quiet" id="cancelFeature">Cancel</button>
           </div>
         </div>
         <label class="field-label" for="featureName">Feature name <span class="optional">optional</span></label>
