@@ -69,9 +69,10 @@
         <button class="button button-primary full-width auto-water-button" id="autoWaterButton" disabled>Automatically detect water</button>
         <p class="subtle auto-water-hint">Finds a water-like color region automatically. If you traced the property boundary, detection stays inside it.</p>
         <div id="autoWaterControls" class="auto-water-controls" hidden>
-          <p class="subtle">Drag a dot to reshape the outline. Double-click the line to add a point. Select a point and press Delete to remove it.</p>
+          <p class="subtle">Drag a dot to reshape the outline. Double-click the line to add a point. Select a dot, then click Remove point.</p>
           <div class="auto-water-actions">
             <button class="button button-quiet" id="undoOutlineEdit" disabled>Undo edit</button>
+            <button class="button button-quiet" id="removeOutlinePoint" disabled>Remove point</button>
             <button class="button button-primary" id="acceptWater">Accept outline</button>
             <button class="button button-quiet" id="cancelWater">Cancel</button>
           </div>

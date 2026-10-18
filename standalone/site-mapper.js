@@ -268,6 +268,7 @@
       state.previewEditStart = null;
       state.previewUndo = [];
       $('undoOutlineEdit').disabled = true;
+      $('removeOutlinePoint').disabled = true;
     }
     state.activeMode = mode;
     state.draft = [];
@@ -325,6 +326,7 @@
       state.previewUndo = [];
       setMode('auto-review');
       $('undoOutlineEdit').disabled = true;
+      $('removeOutlinePoint').disabled = true;
       $('drawHelp').textContent = 'Drag a point to reshape the outline. Double-click the line to add a point; select one and press Delete to remove it.';
       showNotice('Water detected. Review the outline and accept it.');
     } catch (error) {
@@ -363,6 +365,7 @@
     state.autoPreview.points = state.previewUndo.pop();
     state.selectedPreviewVertex = null;
     $('undoOutlineEdit').disabled = state.previewUndo.length === 0;
+    $('removeOutlinePoint').disabled = true;
     render();
   }
 
@@ -392,6 +395,7 @@
     savePreviewUndo();
     state.autoPreview.points.splice(best.index, 0, best.point);
     state.selectedPreviewVertex = best.index;
+    $('removeOutlinePoint').disabled = false;
     render();
   }
 
@@ -401,6 +405,7 @@
     savePreviewUndo();
     state.autoPreview.points.splice(state.selectedPreviewVertex, 1);
     state.selectedPreviewVertex = null;
+    $('removeOutlinePoint').disabled = true;
     render();
   }
 
@@ -603,6 +608,7 @@
     runAutoWaterTrace();
   });
   $('undoOutlineEdit').addEventListener('click', undoPreviewEdit);
+  $('removeOutlinePoint').addEventListener('click', removeSelectedPreviewVertex);
   $('acceptWater').addEventListener('click', acceptAutoWater);
   $('cancelWater').addEventListener('click', cancelAutoWater);
   $('saveProject').addEventListener('click', saveProject);
@@ -631,6 +637,7 @@
       const index = closestPreviewVertex(point, 12 / state.viewScale);
       if (index >= 0) {
         state.selectedPreviewVertex = index;
+        $('removeOutlinePoint').disabled = false;
         state.draggingPreviewVertex = index;
         state.previewEditStart = state.autoPreview.points.map(p => ({ x: p.x, y: p.y }));
         canvas.setPointerCapture(event.pointerId);
