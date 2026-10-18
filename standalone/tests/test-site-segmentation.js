@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { regionMask, contourFromMask, simplifyContour, detectWater } = require('../site-segmentation.js');
+const { regionMask, contourFromMask, simplifyContour, detectWater, cleanBuildingMask } = require('../site-segmentation.js');
 
 function makeImage(width, height, water, land = [100, 155, 85]) {
   const pixels = new Uint8ClampedArray(width * height * 4);
@@ -27,6 +27,18 @@ const area = Math.abs(outline.reduce((sum, point, i) => {
 assert.equal(area, 99);
 
 assert.throws(() => regionMask(pixels, width, height, -1, 7, 24), /inside the image/);
+
+// Building cleanup removes thin color spurs and fills small gaps without wiping the roof footprint.
+const roofWidth = 40, roofHeight = 30;
+const roof = new Uint8Array(roofWidth * roofHeight);
+for (let y = 8; y < 22; y++) for (let x = 10; x < 30; x++) roof[y * roofWidth + x] = 1;
+for (let y = 5; y < 8; y++) roof[y * roofWidth + 19] = 1;
+roof[14 * roofWidth + 10] = 0;
+const cleanedRoof = cleanBuildingMask(roof, roofWidth, roofHeight, 1);
+const cleanedRoofArea = [...cleanedRoof].reduce((sum, pixel) => sum + pixel, 0);
+assert.ok(cleanedRoofArea >= 278 && cleanedRoofArea <= 282, 'cleanup preserves the main building footprint');
+assert.equal(cleanedRoof[6 * roofWidth + 19], 0, 'cleanup removes a narrow roof-color spur');
+assert.equal(cleanedRoof[14 * roofWidth + 10], 1, 'cleanup fills a one-pixel gap in the roof edge');
 
 // The automatic detector must find the large, distinct pond without a user-provided seed.
 const autoWidth = 120, autoHeight = 100;

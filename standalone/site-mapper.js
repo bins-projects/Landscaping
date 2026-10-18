@@ -89,7 +89,8 @@
       confidence: $('confidence').value,
       objectKind: $('objectKind').value,
       objectName: $('objectName').value,
-      outlineDetail: $('outlineDetail').value
+      outlineDetail: $('outlineDetail').value,
+      buildingCleanup: $('buildingCleanup').value
     });
     if (state.undoStack.length > 40) state.undoStack.shift();
     updateUndoButton();
@@ -117,6 +118,9 @@
     $('objectKind').value = snapshot.objectKind;
     $('objectName').value = snapshot.objectName;
     $('outlineDetail').value = snapshot.outlineDetail;
+    $('buildingCleanup').value = snapshot.buildingCleanup;
+    $('buildingCleanupValue').textContent = `${snapshot.buildingCleanup} px`;
+    $('buildingCleanupControl').hidden = selectedObjectKind()?.type !== 'building';
     $('outlineDetail').disabled = Boolean(state.autoPreview?.edited);
     $('straightenSection').textContent = state.simplifySectionMode ? 'Cancel straightening' : 'Straighten a section';
     $('removeBump').textContent = state.trimBumpMode ? 'Cancel bump removal' : 'Remove a bump';
@@ -502,17 +506,32 @@
   function updateObjectKind() {
     const kind = selectedObjectKind();
     $('acceptFeature').disabled = !kind;
+    $('buildingCleanupControl').hidden = !kind || kind.type !== 'building';
     if (!state.autoPreview || !kind) return;
     state.autoPreview.type = kind.type;
     state.autoPreview.name = $('objectName').value.trim() || kind.label;
+    $('buildingCleanupControl').hidden = kind.type !== 'building';
     if (!state.autoPreview.edited) {
       const tolerance = outlineTolerance(kind.type);
       $('outlineDetail').value = String(tolerance);
       $('outlineDetailValue').textContent = `${formatNumber(tolerance)} px`;
-      if (state.autoPreview.contourSource) state.autoPreview.points = SiteSegmentation.simplifyContour(state.autoPreview.contourSource, tolerance);
+      refreshPreviewOutline();
     }
     if (!$('objectName').value.trim()) $('objectName').value = kind.label;
     render();
+  }
+
+  function refreshPreviewOutline() {
+    if (!state.autoPreview || state.autoPreview.edited) return;
+    const kind = selectedObjectKind();
+    let source = state.autoPreview.contourSource;
+    if (kind?.type === 'building' && state.autoPreview.mask) {
+      const cleaned = SiteSegmentation.cleanBuildingMask(state.autoPreview.mask, state.autoPreview.workWidth, state.autoPreview.workHeight, Number($('buildingCleanup').value));
+      source = SiteSegmentation.contourFromMask(cleaned, state.autoPreview.workWidth, state.autoPreview.workHeight, .5)
+        .map(p => ({ x: p.x * state.imageWidth / state.autoPreview.workWidth, y: p.y * state.imageHeight / state.autoPreview.workHeight }));
+    }
+    state.autoPreview.activeContourSource = source;
+    state.autoPreview.points = SiteSegmentation.simplifyContour(source, Number($('outlineDetail').value));
   }
 
   function positionObjectEditor(anchor) {
@@ -568,7 +587,8 @@
       const points = SiteSegmentation.simplifyContour(contourSource, tolerance);
       if (result.count < 24 || points.length < 3) throw new Error('Could not find a clear color boundary there. Try clicking farther inside the feature.');
       state.autoPreview = {
-        points, contourSource, edited: false, geometry: 'polygon', type,
+        points, contourSource, mask: result.mask, workWidth: workCanvas.width, workHeight: workCanvas.height,
+        activeContourSource: contourSource, edited: false, geometry: 'polygon', type,
         name: '', confidence: $('confidence').value, pixel_count: result.count
       };
       state.objectAnchor = seedPoint;
@@ -1023,7 +1043,12 @@
     const tolerance = Number($('outlineDetail').value);
     $('outlineDetailValue').textContent = `${formatNumber(tolerance)} px`;
     if (!state.autoPreview || state.autoPreview.edited) return;
-    state.autoPreview.points = SiteSegmentation.simplifyContour(state.autoPreview.contourSource, tolerance);
+    refreshPreviewOutline();
+    render();
+  });
+  $('buildingCleanup').addEventListener('input', () => {
+    $('buildingCleanupValue').textContent = `${$('buildingCleanup').value} px`;
+    refreshPreviewOutline();
     render();
   });
   $('removeOutlinePoint').addEventListener('click', removeSelectedPreviewVertex);

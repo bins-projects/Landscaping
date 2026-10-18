@@ -49,6 +49,41 @@
     return { mask, count: tail, seed: { x: sx, y: sy }, tolerance: tol };
   }
 
+  function morphologyPass(mask, width, height, radius, dilate, horizontal) {
+    const output = new Uint8Array(mask.length);
+    const lines = horizontal ? height : width;
+    const length = horizontal ? width : height;
+    const indexAt = (position, line) => horizontal ? line * width + position : position * width + line;
+    const windowSize = radius * 2 + 1;
+    for (let line = 0; line < lines; line++) {
+      let count = 0;
+      for (let p = 0; p <= radius && p < length; p++) count += mask[indexAt(p, line)];
+      for (let position = 0; position < length; position++) {
+        output[indexAt(position, line)] = dilate ? Number(count > 0) : Number(count === windowSize);
+        const leaving = position - radius;
+        const entering = position + radius + 1;
+        if (leaving >= 0) count -= mask[indexAt(leaving, line)];
+        if (entering < length) count += mask[indexAt(entering, line)];
+      }
+    }
+    return output;
+  }
+
+  function cleanBuildingMask(mask, width, height, radius = 3) {
+    const r = Math.max(1, Math.min(8, Math.round(Number(radius) || 3)));
+    let cleaned = mask;
+    // Opening removes tiny roof-color spurs; closing fills narrow gaps between roof shades.
+    cleaned = morphologyPass(cleaned, width, height, r, false, true);
+    cleaned = morphologyPass(cleaned, width, height, r, false, false);
+    cleaned = morphologyPass(cleaned, width, height, r, true, true);
+    cleaned = morphologyPass(cleaned, width, height, r, true, false);
+    cleaned = morphologyPass(cleaned, width, height, r, true, true);
+    cleaned = morphologyPass(cleaned, width, height, r, true, false);
+    cleaned = morphologyPass(cleaned, width, height, r, false, true);
+    cleaned = morphologyPass(cleaned, width, height, r, false, false);
+    return cleaned;
+  }
+
   function polygonMask(width, height, polygon) {
     const w = Math.floor(width), h = Math.floor(height);
     if (!Array.isArray(polygon) || polygon.length < 3) return null;
@@ -249,7 +284,7 @@
     return dx * dx + dy * dy;
   }
 
-  const api = { regionMask, contourFromMask, simplifyContour, detectWater, polygonMask };
+  const api = { regionMask, contourFromMask, simplifyContour, detectWater, polygonMask, cleanBuildingMask };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.SiteSegmentation = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);
