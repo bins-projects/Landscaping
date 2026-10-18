@@ -28,8 +28,9 @@ the file you download; it does not upload the aerial or project.
 
 ## Current limits
 
-- Scale and all features are traced manually. Accuracy depends on the source
-  image, selected reference distance, and the user's trace.
+- Scale and most features are traced manually. Water tracing is assisted and
+  should be reviewed. Accuracy depends on the source image, reference distance,
+  and trace quality.
 - Coordinates use image pixels converted to local feet from the image's top-left
   corner. North and geographic coordinates are not known.
 - GIS/GeoTIFF georeferencing, automatic aerial feature recognition, and direct
