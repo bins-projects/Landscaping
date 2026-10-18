@@ -300,6 +300,10 @@
     return 'Click the feature location once to place a marker.';
   }
 
+  function outlineTolerance(type) {
+    return ({ building: 2.5, water: 1.25, path: 1.25, hardscape: 2.5, parcel: 2.5, 'existing-bed': 2, 'no-plant': 2, tree: 2.5 })[type] ?? 2;
+  }
+
   function runAutoFeatureTrace(seedPoint) {
     if (!state.image || !seedPoint) return;
     try {
@@ -319,11 +323,13 @@
       const allowedMask = SiteSegmentation.polygonMask(workCanvas.width, workCanvas.height, allowedPolygon);
       const seed = { x: seedPoint.x * workCanvas.width / state.imageWidth, y: seedPoint.y * workCanvas.height / state.imageHeight };
       const result = SiteSegmentation.regionMask(pixels.data, workCanvas.width, workCanvas.height, seed.x, seed.y, 34, allowedMask);
-      const points = SiteSegmentation.contourFromMask(result.mask, workCanvas.width, workCanvas.height, 1.25)
+      const contourSource = SiteSegmentation.contourFromMask(result.mask, workCanvas.width, workCanvas.height, .5)
         .map(p => ({ x: p.x * state.imageWidth / workCanvas.width, y: p.y * state.imageHeight / workCanvas.height }));
+      const type = $('featureType').value || 'water';
+      const points = SiteSegmentation.simplifyContour(contourSource, outlineTolerance(type));
       if (result.count < 24 || points.length < 3) throw new Error('Could not find a clear color boundary there. Try clicking farther inside the feature.');
       state.autoPreview = {
-        points, geometry: 'polygon', type: $('featureType').value || 'water',
+        points, contourSource, edited: false, geometry: 'polygon', type,
         name: $('featureName').value.trim(), confidence: $('confidence').value, pixel_count: result.count
       };
       state.previewUndo = [];
@@ -360,6 +366,7 @@
 
   function savePreviewUndo() {
     if (!state.autoPreview) return;
+    state.autoPreview.edited = true;
     state.previewUndo.push(state.autoPreview.points.map(p => ({ x: p.x, y: p.y })));
     if (state.previewUndo.length > 30) state.previewUndo.shift();
     $('undoOutlineEdit').disabled = false;
@@ -606,7 +613,13 @@
   $('finishShape').addEventListener('click', finishDrawing);
   $('undoPoint').addEventListener('click', () => { if (state.draft.length) { state.draft.pop(); render(); } });
   $('featureType').addEventListener('change', () => {
-    if (state.autoPreview) { state.autoPreview.type = $('featureType').value || 'water'; render(); }
+    if (state.autoPreview) {
+      state.autoPreview.type = $('featureType').value || 'water';
+      if (!state.autoPreview.edited && state.autoPreview.contourSource) {
+        state.autoPreview.points = SiteSegmentation.simplifyContour(state.autoPreview.contourSource, outlineTolerance(state.autoPreview.type));
+      }
+      render();
+    }
     if (state.activeMode === 'draw') $('drawHelp').textContent = getDrawHelp();
     updateScaleDisplay();
   });
@@ -680,6 +693,7 @@
       const start = state.previewEditStart || [];
       const end = state.autoPreview?.points || [];
       if (start.length && start.some((p, i) => p.x !== end[i]?.x || p.y !== end[i]?.y)) {
+        state.autoPreview.edited = true;
         state.previewUndo.push(start);
         if (state.previewUndo.length > 30) state.previewUndo.shift();
         $('undoOutlineEdit').disabled = false;

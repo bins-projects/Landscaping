@@ -191,7 +191,7 @@
       const area = Math.abs(loopArea(loop));
       if (area > bestArea) { bestArea = area; best = loop; }
     }
-    return simplify(best, simplificationTolerance);
+    return simplifyContour(best, simplificationTolerance);
   }
 
   function directionOf(from, to, vertexWidth) {
@@ -227,6 +227,18 @@
     return points.filter((_, i) => keep[i]);
   }
 
+  function simplifyContour(points, tolerance) {
+    if (points.length < 5) return points.slice();
+    let opposite = 1, farthest = -1;
+    for (let i = 1; i < points.length; i++) {
+      const d = (points[i].x - points[0].x) ** 2 + (points[i].y - points[0].y) ** 2;
+      if (d > farthest) { farthest = d; opposite = i; }
+    }
+    const firstArc = simplify(points.slice(0, opposite + 1), tolerance);
+    const secondArc = simplify([...points.slice(opposite), points[0]], tolerance);
+    return [...firstArc, ...secondArc.slice(1, -1)];
+  }
+
   function segmentDistanceSquared(p, a, b) {
     let x = a.x, y = a.y, dx = b.x - x, dy = b.y - y;
     if (dx || dy) {
@@ -237,7 +249,7 @@
     return dx * dx + dy * dy;
   }
 
-  const api = { regionMask, contourFromMask, detectWater, polygonMask };
+  const api = { regionMask, contourFromMask, simplifyContour, detectWater, polygonMask };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.SiteSegmentation = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

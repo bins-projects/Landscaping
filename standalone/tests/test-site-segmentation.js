@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { regionMask, contourFromMask, detectWater } = require('../site-segmentation.js');
+const { regionMask, contourFromMask, simplifyContour, detectWater } = require('../site-segmentation.js');
 
 function makeImage(width, height, water, land = [100, 155, 85]) {
   const pixels = new Uint8ClampedArray(width * height * 4);
@@ -48,6 +48,13 @@ const detailedContour = contourFromMask(automatic.mask, autoWidth, autoHeight, 1
 const coarseContour = contourFromMask(automatic.mask, autoWidth, autoHeight, 15);
 assert.ok(detailedContour.length >= 4);
 assert.ok(detailedContour.length > coarseContour.length, 'fine contour keeps curved boundary detail');
+const cleanBuildingContour = simplifyContour(detailedContour, 2.5);
+assert.ok(cleanBuildingContour.length < detailedContour.length, 'building profile reduces tiny roof-edge changes');
+const contourArea = points => Math.abs(points.reduce((sum, point, i) => {
+  const next = points[(i + 1) % points.length];
+  return sum + point.x * next.y - next.x * point.y;
+}, 0) / 2);
+assert.ok(contourArea(cleanBuildingContour) / contourArea(detailedContour) > .94, 'building cleanup preserves the detected footprint');
 
 // A seed click can isolate and outline a winding sidewalk-like color region.
 const walkWidth = 100, walkHeight = 80;
