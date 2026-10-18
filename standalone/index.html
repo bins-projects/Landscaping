@@ -79,6 +79,17 @@
           <button class="button button-quiet" id="finishShape" disabled>Finish</button>
         </div>
         <p id="drawHelp" class="subtle">Load an image and set its scale to begin.</p>
+        <button class="button button-outline full-width auto-water-button" id="autoWaterButton" disabled>Auto-trace water · click pond</button>
+        <div id="autoWaterControls" class="auto-water-controls" hidden>
+          <label class="field-label" for="waterTolerance">Outline tolerance <span id="waterToleranceValue" class="optional">42</span></label>
+          <input id="waterTolerance" class="tolerance-slider" type="range" min="12" max="105" step="3" value="42">
+          <p class="subtle">Lower follows similar water colors more tightly; higher includes more variation.</p>
+          <div class="auto-water-actions">
+            <button class="button button-quiet" id="retryWater">Apply</button>
+            <button class="button button-primary" id="acceptWater">Accept outline</button>
+            <button class="button button-quiet" id="cancelWater">Cancel</button>
+          </div>
+        </div>
       </section>
 
       <section class="panel feature-panel">
@@ -120,6 +131,7 @@
     </section>
   </main>
   <script src="site-geometry.js"></script>
+  <script src="site-segmentation.js"></script>
   <script src="site-mapper.js"></script>
 </body>
 </html>

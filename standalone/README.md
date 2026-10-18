@@ -15,6 +15,13 @@ provider dependency.
 5. Save the project as a `.siteplan` file. That file includes the aerial and the
    map traces, so keep it private if the image shows a private property.
 
+For a pond or other water body, choose **Pool or water feature · polygon**, then
+click **Auto-trace water · click pond** and click inside the water. Review the
+preview, adjust the tolerance if the outline is too tight or spills outside the
+shoreline, then apply and accept it. The selection runs locally using pixel
+color and edge differences. Reflections, deep shadows, or vegetation can still
+confuse it, so inspect the preview; manual tracing remains available.
+
 Scroll to zoom; drag with the middle mouse button or hold Space and drag to pan.
 Use “Export map PNG” for an annotated image. The app stores project data only in
 the file you download; it does not upload the aerial or project.
@@ -34,4 +41,5 @@ the file you download; it does not upload the aerial or project.
 
 ```sh
 node tests/test-site-geometry.js
+node tests/test-site-segmentation.js
 ```

@@ -13,7 +13,7 @@ It works for home yards, HOA common areas, pool grounds, school gardens and othe
 
 ## Independent site mapper (prototype)
 
-`standalone/` contains the first step toward a separate, local program. Open `standalone/index.html` in a modern browser to upload an aerial image, calibrate its scale from a known distance, trace site features, and save or reopen each property as its own `.siteplan` file. It runs on the device without Claude, an account, a server, or an AI service. You can also export an annotated PNG.
+`standalone/` contains the first step toward a separate, local program. Open `standalone/index.html` in a modern browser to upload an aerial image, calibrate its scale from a known distance, trace site features, and save or reopen each property as its own `.siteplan` file. Water can be outlined by clicking inside it; the local color-region tool previews the result and lets you adjust tolerance before accepting it. It runs on the device without Claude, an account, a server, or an AI service. You can also export an annotated PNG.
 
 This is currently the mapping foundation, not the complete planting planner. It does not yet georeference GIS/GeoTIFF files, set north, automatically interpret aerials, or feed the traced site into the existing planting-plan generator. The feature traces are manual and dimensions depend on the accuracy of the chosen scale and trace. Desktop packaging and connecting site projects to the plan generator are next development steps.
 

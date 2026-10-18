@@ -235,6 +235,8 @@
   }
 
   function setMode(mode) {
+    if (mode !== 'auto-review') state.autoPreview = null;
+    if (mode !== 'auto-review' && mode !== 'auto-water') state.autoSeed = null;
     state.activeMode = mode;
     state.draft = [];
     state.calibrationPoints = [];
@@ -257,6 +259,59 @@
     if (shape === 'line') return 'Click along the feature; double-click or press Finish to end the line.';
     if (shape === 'circle') return 'Click the tree center, then click the canopy edge.';
     return 'Click the feature location once to place a marker.';
+  }
+
+  function runAutoWaterTrace(seed, tolerance) {
+    if (!state.image || !seed) return;
+    try {
+      const maxDimension = 1200;
+      const ratio = Math.min(1, maxDimension / Math.max(state.imageWidth, state.imageHeight));
+      const workCanvas = document.createElement('canvas');
+      workCanvas.width = Math.max(3, Math.round(state.imageWidth * ratio));
+      workCanvas.height = Math.max(3, Math.round(state.imageHeight * ratio));
+      const workCtx = workCanvas.getContext('2d', { willReadFrequently: true });
+      workCtx.drawImage(state.image, 0, 0, workCanvas.width, workCanvas.height);
+      const pixels = workCtx.getImageData(0, 0, workCanvas.width, workCanvas.height);
+      const result = SiteSegmentation.regionMask(
+        pixels.data, workCanvas.width, workCanvas.height,
+        seed.x * workCanvas.width / state.imageWidth,
+        seed.y * workCanvas.height / state.imageHeight,
+        tolerance
+      );
+      const points = SiteSegmentation.contourFromMask(result.mask, workCanvas.width, workCanvas.height)
+        .map(p => ({ x: p.x * state.imageWidth / workCanvas.width, y: p.y * state.imageHeight / workCanvas.height }));
+      if (result.count < 24 || points.length < 3) throw new Error('That spot produced a very small region. Try a point farther inside the water.');
+      state.autoSeed = seed;
+      state.autoPreview = {
+        points, type: 'water', name: $('featureName').value.trim() || 'Water feature',
+        confidence: $('confidence').value, pixel_count: result.count,
+        tolerance: result.tolerance, coverage: result.count / (workCanvas.width * workCanvas.height)
+      };
+      $('waterTolerance').value = String(result.tolerance);
+      $('waterToleranceValue').textContent = String(result.tolerance);
+      setMode('auto-review');
+      if (state.autoPreview.coverage > .8) showNotice('This outline covers most of the image. Lower tolerance or choose a point deeper in the water.');
+      else showNotice('Water outline ready to review.');
+    } catch (error) {
+      showNotice(error.message || 'Could not trace that area. Try another point or trace it manually.');
+    }
+  }
+
+  function acceptAutoWater() {
+    if (!state.autoPreview) return;
+    const name = $('featureName').value.trim() || 'Water feature';
+    state.features.push({
+      id: crypto.randomUUID ? crypto.randomUUID() : `feature-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      name, type: 'water', geometry: 'polygon', confidence: $('confidence').value,
+      points: state.autoPreview.points
+    });
+    state.autoPreview = null; state.autoSeed = null; $('featureName').value = '';
+    setMode(null); updateFeatureList(); showNotice(`${name} added to this site.`);
+  }
+
+  function cancelAutoWater() {
+    state.autoPreview = null; state.autoSeed = null;
+    setMode(null); render();
   }
 
   function finishDrawing() {
@@ -290,6 +345,7 @@
     const imagePixels = measured.pixelDistance;
     state.ftPerPixel = measured.feetPerPixel;
     state.calibration = { points: [a, b], distance_ft: distance, pixel_distance: +imagePixels.toFixed(3) };
+    $('mapHint').textContent = state.location || 'Scale calibrated · ready to trace';
     setMode(null); updateScaleDisplay(); render();
     showNotice(`Scale set: ${formatNumber(imagePixels / distance)} px per foot.`);
   }
@@ -303,6 +359,10 @@
       state.calibrationPoints.push(p);
       if (state.calibrationPoints.length === 2) completeCalibration();
       else render();
+      return;
+    }
+    if (state.activeMode === 'auto-water') {
+      runAutoWaterTrace(p, Number($('waterTolerance').value));
       return;
     }
     if (state.activeMode !== 'draw' || event.detail > 1) return;
@@ -324,7 +384,8 @@
         state.image = image; state.imageData = reader.result; state.imageName = file.name;
         state.imageWidth = image.naturalWidth; state.imageHeight = image.naturalHeight;
         state.ftPerPixel = null; state.calibration = null; state.calibrationPoints = [];
-        state.features = []; state.draft = []; state.activeMode = null; state.hasFit = false;
+        state.features = []; state.draft = []; state.activeMode = null; state.autoPreview = null; state.autoSeed = null; state.hasFit = false;
+        setMode(null);
         $('emptyState').hidden = true;
         $('imageStatus').textContent = `${file.name} · ${image.naturalWidth.toLocaleString()} × ${image.naturalHeight.toLocaleString()} px`;
         $('mapHint').textContent = 'Image loaded · calibrate scale to start tracing';
@@ -386,7 +447,8 @@
           state.ftPerPixel = Number(data.calibration?.feet_per_pixel) || null;
           state.calibration = data.calibration ? { points: data.calibration.points, distance_ft: data.calibration.distance_ft, pixel_distance: data.calibration.pixel_distance } : null;
           state.features = data.features.map(f => ({ id: f.id || `feature-${Date.now()}`, name: f.name, type: f.type, geometry: f.geometry, confidence: f.confidence, points: (f.points_image_px || []).map(p => ({ x: Number(p.x), y: Number(p.y) })) }));
-          state.activeMode = null; state.draft = []; state.hasFit = false;
+          state.activeMode = null; state.draft = []; state.autoPreview = null; state.autoSeed = null; state.hasFit = false;
+          setMode(null);
           $('emptyState').hidden = true;
           $('siteName').dispatchEvent(new Event('input'));
           $('imageStatus').textContent = `${state.imageName} · ${image.naturalWidth.toLocaleString()} × ${image.naturalHeight.toLocaleString()} px`;
@@ -425,7 +487,7 @@
   function startNewSite() {
     if (hasSiteWork() && !confirm('Start a new site? Unsaved work in this tab will be cleared.')) return;
     state.image = null; state.imageData = ''; state.imageName = ''; state.imageWidth = 0; state.imageHeight = 0;
-    state.ftPerPixel = null; state.calibration = null; state.calibrationPoints = []; state.features = []; state.draft = [];
+    state.ftPerPixel = null; state.calibration = null; state.calibrationPoints = []; state.features = []; state.draft = []; state.autoPreview = null; state.autoSeed = null;
     state.activeMode = null; state.hasFit = false; state.offsetX = 0; state.offsetY = 0;
     $('siteName').value = 'Untitled Florida site'; $('siteLocation').value = '';
     $('imageStatus').textContent = 'No image loaded yet.'; $('emptyState').hidden = false;
@@ -441,7 +503,21 @@
   $('drawButton').addEventListener('click', () => setMode(state.activeMode === 'draw' ? null : 'draw'));
   $('finishShape').addEventListener('click', finishDrawing);
   $('undoPoint').addEventListener('click', () => { if (state.draft.length) { state.draft.pop(); render(); } });
-  $('featureType').addEventListener('change', () => { if (state.activeMode === 'draw') $('drawHelp').textContent = getDrawHelp(); });
+  $('featureType').addEventListener('change', () => {
+    if (state.activeMode === 'draw') $('drawHelp').textContent = getDrawHelp();
+    updateScaleDisplay();
+  });
+  $('autoWaterButton').addEventListener('click', () => {
+    if (state.activeMode === 'auto-water') { cancelAutoWater(); return; }
+    if ($('featureType').value !== 'water') { showNotice('Choose “Pool or water feature” first.'); return; }
+    if (!state.ftPerPixel) { showNotice('Set the image scale before tracing.'); return; }
+    state.autoPreview = null;
+    setMode('auto-water');
+  });
+  $('waterTolerance').addEventListener('input', e => { $('waterToleranceValue').textContent = e.target.value; });
+  $('retryWater').addEventListener('click', () => runAutoWaterTrace(state.autoSeed, Number($('waterTolerance').value)));
+  $('acceptWater').addEventListener('click', acceptAutoWater);
+  $('cancelWater').addEventListener('click', cancelAutoWater);
   $('saveProject').addEventListener('click', saveProject);
   $('loadProject').addEventListener('click', () => $('projectFile').click());
   $('projectFile').addEventListener('change', e => { loadProject(e.target.files[0]); e.target.value = ''; });
