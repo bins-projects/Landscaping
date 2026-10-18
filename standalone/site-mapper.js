@@ -10,6 +10,7 @@
     image: null, imageWidth: 0, imageHeight: 0, ftPerPixel: null,
     calibrationPoints: [], features: [], draft: [], activeMode: null,
     viewScale: 1, offsetX: 0, offsetY: 0, dpr: 1, panning: null,
+    navigationLocked: true,
     noticeTimer: null, spaceDown: false, suppressClick: false,
     draggingPreviewVertex: null, selectedPreviewVertex: null, previewEditStart: null, previewUndo: []
   };
@@ -58,11 +59,11 @@
     const w = canvas.clientWidth, h = canvas.clientHeight;
     const pad = 48;
     state.viewScale = Math.min((w - pad * 2) / state.imageWidth, (h - pad * 2) / state.imageHeight);
-    state.viewScale = Math.max(.025, Math.min(state.viewScale, 8));
+    state.viewScale = Math.max(.001, Math.min(state.viewScale, 8));
     state.offsetX = (w - state.imageWidth * state.viewScale) / 2;
     state.offsetY = (h - state.imageHeight * state.viewScale) / 2;
     state.hasFit = true;
-    updateZoomLabel();
+    updateZoomLabel(); updateNavigationUI();
     render();
   }
 
@@ -70,14 +71,37 @@
     $('zoomLabel').textContent = `${Math.round(state.viewScale * 100)}%`;
   }
 
-  function zoomAt(factor, x = canvas.clientWidth / 2, y = canvas.clientHeight / 2) {
+  function updateNavigationUI() {
+    const button = $('mapLock');
+    button.textContent = state.navigationLocked ? 'Unlock map' : 'Lock map';
+    button.setAttribute('aria-pressed', String(state.navigationLocked));
+    button.title = state.navigationLocked ? 'Unlock to zoom and drag the map' : 'Lock map in place to trace and edit';
+    button.disabled = !state.image;
+    $('zoomIn').disabled = !state.image || state.navigationLocked;
+    $('zoomOut').disabled = !state.image || state.navigationLocked;
+    canvas.style.cursor = state.panning ? 'grabbing' : state.navigationLocked ? 'crosshair' : 'grab';
+  }
+
+  function clampOffset() {
     if (!state.image) return;
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    const imageW = state.imageWidth * state.viewScale, imageH = state.imageHeight * state.viewScale;
+    const margin = 64;
+    if (imageW <= w - margin * 2) state.offsetX = (w - imageW) / 2;
+    else state.offsetX = Math.max(margin - imageW, Math.min(w - margin, state.offsetX));
+    if (imageH <= h - margin * 2) state.offsetY = (h - imageH) / 2;
+    else state.offsetY = Math.max(margin - imageH, Math.min(h - margin, state.offsetY));
+  }
+
+  function zoomAt(factor, x = canvas.clientWidth / 2, y = canvas.clientHeight / 2) {
+    if (!state.image || state.navigationLocked) return;
     const old = state.viewScale;
-    const next = Math.max(.025, Math.min(12, old * factor));
+    const next = Math.max(.01, Math.min(8, old * factor));
     const ratio = next / old;
     state.offsetX = x - (x - state.offsetX) * ratio;
     state.offsetY = y - (y - state.offsetY) * ratio;
     state.viewScale = next;
+    clampOffset();
     updateZoomLabel();
     render();
   }
@@ -281,7 +305,7 @@
     $('finishShape').disabled = !drawing;
     $('undoPoint').disabled = !drawing;
     $('calibrateButton').textContent = mode === 'calibrate' ? 'Cancel scale marking' : 'Mark scale on image';
-    $('mapCanvas').style.cursor = mode === 'pan' ? 'grab' : 'crosshair';
+    updateNavigationUI();
     if (mode === 'draw') $('drawHelp').textContent = getDrawHelp();
     else if (mode === 'calibrate') $('drawHelp').textContent = 'Click the first and second ends of your known distance.';
     else if (mode === 'auto-select') $('drawHelp').textContent = 'Click inside the feature you want to outline.';
@@ -466,7 +490,7 @@
 
   function onMapClick(event) {
     if (state.suppressClick) { state.suppressClick = false; return; }
-    if (!state.image || state.panning) return;
+    if (!state.image || state.panning || !state.navigationLocked) return;
     const p = imagePoint(event);
     if (!insideImage(p)) return;
     if (state.activeMode === 'calibrate') {
@@ -498,7 +522,7 @@
         state.image = image; state.imageData = reader.result; state.imageName = file.name;
         state.imageWidth = image.naturalWidth; state.imageHeight = image.naturalHeight;
         state.ftPerPixel = null; state.calibration = null; state.calibrationPoints = [];
-        state.features = []; state.draft = []; state.activeMode = null; state.autoPreview = null; state.hasFit = false;
+        state.features = []; state.draft = []; state.activeMode = null; state.autoPreview = null; state.hasFit = false; state.navigationLocked = true;
         setMode(null);
         $('emptyState').hidden = true;
         $('imageStatus').textContent = `${file.name} · ${image.naturalWidth.toLocaleString()} × ${image.naturalHeight.toLocaleString()} px`;
@@ -561,7 +585,7 @@
           state.ftPerPixel = Number(data.calibration?.feet_per_pixel) || null;
           state.calibration = data.calibration ? { points: data.calibration.points, distance_ft: data.calibration.distance_ft, pixel_distance: data.calibration.pixel_distance } : null;
           state.features = data.features.map(f => ({ id: f.id || `feature-${Date.now()}`, name: f.name, type: f.type, geometry: f.geometry, confidence: f.confidence, points: (f.points_image_px || []).map(p => ({ x: Number(p.x), y: Number(p.y) })) }));
-          state.activeMode = null; state.draft = []; state.autoPreview = null; state.hasFit = false;
+          state.activeMode = null; state.draft = []; state.autoPreview = null; state.hasFit = false; state.navigationLocked = true;
           setMode(null);
           $('emptyState').hidden = true;
           $('siteName').dispatchEvent(new Event('input'));
@@ -602,7 +626,7 @@
     if (hasSiteWork() && !confirm('Start a new site? Unsaved work in this tab will be cleared.')) return;
     state.image = null; state.imageData = ''; state.imageName = ''; state.imageWidth = 0; state.imageHeight = 0;
     state.ftPerPixel = null; state.calibration = null; state.calibrationPoints = []; state.features = []; state.draft = []; state.autoPreview = null;
-    state.activeMode = null; state.hasFit = false; state.offsetX = 0; state.offsetY = 0;
+    state.activeMode = null; state.hasFit = false; state.offsetX = 0; state.offsetY = 0; state.navigationLocked = true;
     $('siteName').value = 'Untitled Florida site'; $('siteLocation').value = '';
     $('imageStatus').textContent = 'No image loaded yet.'; $('emptyState').hidden = false;
     setMode(null); updateProjectHeading(); updateScaleDisplay(); updateFeatureList(); render();
@@ -656,16 +680,23 @@
   $('fitMap').addEventListener('click', fitImage);
   $('zoomIn').addEventListener('click', () => zoomAt(1.2));
   $('zoomOut').addEventListener('click', () => zoomAt(1/1.2));
+  $('mapLock').addEventListener('click', () => {
+    state.navigationLocked = !state.navigationLocked;
+    state.panning = null;
+    state.suppressClick = false;
+    updateNavigationUI();
+    showNotice(state.navigationLocked ? 'Map locked in place. You can trace and edit features.' : 'Map unlocked. Drag to move; scroll to zoom.');
+  });
   canvas.addEventListener('click', onMapClick);
   canvas.addEventListener('dblclick', event => {
     event.preventDefault();
+    if (!state.navigationLocked) return;
     if (state.activeMode === 'auto-review') { addPreviewVertex(event); return; }
     if (state.activeMode === 'draw') finishDrawing();
   });
   canvas.addEventListener('pointerdown', event => {
-    if (event.button === 1 || state.spaceDown) {
-      state.panning = { x: event.clientX, y: event.clientY, ox: state.offsetX, oy: state.offsetY };
-      state.suppressClick = true;
+    if (!state.navigationLocked && (event.button === 0 || event.button === 1 || state.spaceDown)) {
+      state.panning = { x: event.clientX, y: event.clientY, ox: state.offsetX, oy: state.offsetY, moved: false };
       canvas.setPointerCapture(event.pointerId); canvas.style.cursor = 'grabbing'; event.preventDefault();
       return;
     }
@@ -693,8 +724,12 @@
       render(); return;
     }
     if (state.panning) {
+      const dx = event.clientX - state.panning.x, dy = event.clientY - state.panning.y;
+      if (!state.panning.moved && Math.hypot(dx, dy) < 4) return;
+      state.panning.moved = true;
       state.offsetX = state.panning.ox + event.clientX - state.panning.x;
       state.offsetY = state.panning.oy + event.clientY - state.panning.y;
+      clampOffset();
       render(); return;
     }
     if (state.image) {
@@ -703,6 +738,7 @@
     }
   });
   canvas.addEventListener('pointerup', () => {
+    if (state.panning?.moved) state.suppressClick = true;
     state.panning = null;
     if (state.draggingPreviewVertex !== null) {
       const start = state.previewEditStart || [];
@@ -717,12 +753,16 @@
       state.draggingPreviewVertex = null;
       state.previewEditStart = null;
     }
-    canvas.style.cursor = state.activeMode === 'pan' ? 'grab' : 'crosshair';
+    updateNavigationUI();
   });
   canvas.addEventListener('wheel', event => {
     if (!state.image) return;
     event.preventDefault();
-    const p = canvasPoint(event); zoomAt(event.deltaY < 0 ? 1.12 : 1/1.12, p.x, p.y);
+    if (state.navigationLocked) return;
+    const units = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? canvas.clientHeight : 1;
+    const delta = Math.max(-240, Math.min(240, event.deltaY * units));
+    const factor = Math.exp(-delta * .0015);
+    const p = canvasPoint(event); zoomAt(factor, p.x, p.y);
   }, { passive: false });
   stage.addEventListener('dragover', e => { e.preventDefault(); stage.classList.add('drag-over'); });
   stage.addEventListener('dragleave', () => stage.classList.remove('drag-over'));
@@ -738,6 +778,6 @@
     if ((event.key === 'Backspace' || event.key === 'Delete') && state.activeMode === 'draw' && document.activeElement.tagName !== 'INPUT') { state.draft.pop(); render(); }
   });
   window.addEventListener('keyup', event => { if (event.code === 'Space') state.spaceDown = false; });
-  window.addEventListener('blur', () => { state.spaceDown = false; state.panning = null; });
-  updateProjectHeading(); updateScaleDisplay(); resizeCanvas();
+  window.addEventListener('blur', () => { state.spaceDown = false; state.panning = null; updateNavigationUI(); });
+  updateProjectHeading(); updateScaleDisplay(); updateNavigationUI(); resizeCanvas();
 })();
