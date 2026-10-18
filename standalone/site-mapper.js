@@ -122,6 +122,7 @@
     ctx.scale(state.viewScale, state.viewScale);
     ctx.drawImage(state.image, 0, 0, state.imageWidth, state.imageHeight);
     state.features.forEach(drawFeature);
+    if (state.autoPreview) drawFeature({ ...state.autoPreview, geometry: 'polygon' });
     if (state.activeMode === 'draw' && state.draft.length) drawDraft();
     if (state.activeMode === 'calibrate' && state.calibrationPoints.length) drawCalibrationDraft();
     ctx.restore();
@@ -246,6 +247,7 @@
     if (mode !== 'auto-review' && mode !== 'auto-water') state.autoSeed = null;
     state.activeMode = mode;
     state.draft = [];
+    $('autoWaterControls').hidden = mode !== 'auto-review';
     state.calibrationPoints = [];
     const drawing = mode === 'draw';
     $('drawButton').textContent = drawing ? 'Cancel tracing' : 'Start tracing';
