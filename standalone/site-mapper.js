@@ -326,7 +326,11 @@
       const contourSource = SiteSegmentation.contourFromMask(result.mask, workCanvas.width, workCanvas.height, .5)
         .map(p => ({ x: p.x * state.imageWidth / workCanvas.width, y: p.y * state.imageHeight / workCanvas.height }));
       const type = $('featureType').value || 'water';
-      const points = SiteSegmentation.simplifyContour(contourSource, outlineTolerance(type));
+      const tolerance = outlineTolerance(type);
+      $('outlineDetail').value = String(tolerance);
+      $('outlineDetailValue').textContent = `${formatNumber(tolerance)} px`;
+      $('outlineDetail').disabled = false;
+      const points = SiteSegmentation.simplifyContour(contourSource, tolerance);
       if (result.count < 24 || points.length < 3) throw new Error('Could not find a clear color boundary there. Try clicking farther inside the feature.');
       state.autoPreview = {
         points, contourSource, edited: false, geometry: 'polygon', type,
@@ -367,6 +371,7 @@
   function savePreviewUndo() {
     if (!state.autoPreview) return;
     state.autoPreview.edited = true;
+    $('outlineDetail').disabled = true;
     state.previewUndo.push(state.autoPreview.points.map(p => ({ x: p.x, y: p.y })));
     if (state.previewUndo.length > 30) state.previewUndo.shift();
     $('undoOutlineEdit').disabled = false;
@@ -616,12 +621,22 @@
     if (state.autoPreview) {
       state.autoPreview.type = $('featureType').value || 'water';
       if (!state.autoPreview.edited && state.autoPreview.contourSource) {
-        state.autoPreview.points = SiteSegmentation.simplifyContour(state.autoPreview.contourSource, outlineTolerance(state.autoPreview.type));
+        const tolerance = outlineTolerance(state.autoPreview.type);
+        $('outlineDetail').value = String(tolerance);
+        $('outlineDetailValue').textContent = `${formatNumber(tolerance)} px`;
+        state.autoPreview.points = SiteSegmentation.simplifyContour(state.autoPreview.contourSource, tolerance);
       }
       render();
     }
     if (state.activeMode === 'draw') $('drawHelp').textContent = getDrawHelp();
     updateScaleDisplay();
+  });
+  $('outlineDetail').addEventListener('input', () => {
+    const tolerance = Number($('outlineDetail').value);
+    $('outlineDetailValue').textContent = `${formatNumber(tolerance)} px`;
+    if (!state.autoPreview || state.autoPreview.edited) return;
+    state.autoPreview.points = SiteSegmentation.simplifyContour(state.autoPreview.contourSource, tolerance);
+    render();
   });
   $('detectFeatureButton').addEventListener('click', () => {
     if (state.activeMode === 'auto-review' || state.activeMode === 'auto-select') { cancelAutoFeature(); return; }
@@ -694,6 +709,7 @@
       const end = state.autoPreview?.points || [];
       if (start.length && start.some((p, i) => p.x !== end[i]?.x || p.y !== end[i]?.y)) {
         state.autoPreview.edited = true;
+        $('outlineDetail').disabled = true;
         state.previewUndo.push(start);
         if (state.previewUndo.length > 30) state.previewUndo.shift();
         $('undoOutlineEdit').disabled = false;

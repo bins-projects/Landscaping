@@ -62,6 +62,9 @@
         <p class="subtle auto-water-hint">Click inside a pond, roof, sidewalk, tree canopy, or other clear feature. Buildings smooth small roof and shadow changes; water keeps finer curves.</p>
         <div id="autoFeatureControls" class="auto-water-controls" hidden>
           <p class="subtle">Drag a dot to reshape the outline. Double-click near the border to add a point where you click. Select a dot, then click Remove point.</p>
+          <label class="field-label" for="outlineDetail">Outline detail <span id="outlineDetailValue" class="optional">2.5 px</span></label>
+          <input id="outlineDetail" class="tolerance-slider" type="range" min="0.5" max="8" step="0.25" value="2.5">
+          <p class="subtle">Fine keeps more small bends; Clean smooths roof texture and shadows. Adjust before moving or adding points.</p>
           <div class="auto-water-actions">
             <button class="button button-quiet" id="undoOutlineEdit" disabled>Undo edit</button>
             <button class="button button-quiet" id="removeOutlinePoint" disabled>Remove point</button>
