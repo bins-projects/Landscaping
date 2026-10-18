@@ -202,6 +202,10 @@
     $('calibrateButton').disabled = !state.image;
     $('exportMap').disabled = !state.image;
     $('saveProject').disabled = !state.image;
+    const canStartWaterTrace = Boolean(state.image && ready && (!state.activeMode || state.activeMode === 'auto-water'));
+    $('autoWaterButton').disabled = !canStartWaterTrace;
+    $('autoWaterButton').textContent = state.activeMode === 'auto-water' ? 'Cancel water selection' : 'Auto-trace water · click pond';
+    $('autoWaterButton').title = !state.image ? 'Load an aerial image first.' : !ready ? 'Calibrate the image scale first.' : state.activeMode && state.activeMode !== 'auto-water' ? 'Finish or cancel the current map action first.' : 'Choose Pool or water feature, then click this and click inside the water.';
     if (!ready) $('drawHelp').textContent = state.image ? 'Calibrate the image scale before tracing so dimensions are real.' : 'Load an image and set its scale to begin.';
     else if (!state.activeMode) $('drawHelp').textContent = 'Choose a feature, then trace it on the map. Double-click or press Finish to close polygons.';
   }
@@ -250,6 +254,7 @@
     else if (mode === 'calibrate') $('drawHelp').textContent = 'Click the first and second ends of your known distance.';
     else if (!state.ftPerPixel) $('drawHelp').textContent = state.image ? 'Calibrate the image scale before tracing so dimensions are real.' : 'Load an image and set its scale to begin.';
     else $('drawHelp').textContent = 'Choose a feature, then trace it on the map. Double-click or press Finish to close polygons.';
+    updateScaleDisplay();
     render();
   }
 
