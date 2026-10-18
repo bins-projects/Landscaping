@@ -20,7 +20,7 @@ It works for home yards, HOA common areas, pool grounds, school gardens and othe
 
 This is currently the mapping foundation, not the complete planting planner. It does not yet georeference GIS/GeoTIFF files, set north, automatically interpret aerials, or feed the traced site into the existing planting-plan generator. Water tracing is assisted; other features are traced manually. Dimensions depend on the accuracy of the chosen scale and trace. Desktop packaging and connecting site projects to the plan generator are next development steps.
 
-The live planner is published from `standalone/` with GitHub Pages. Changes pushed to `main` automatically replace the live version.
+The Run Fieldnote button opens the standalone planner published from `standalone/` with GitHub Pages. Once Pages is enabled, changes pushed to `main` automatically replace the live version.
 
 To check its geometry code, run `node standalone/tests/test-site-geometry.js`.
 
