@@ -13,6 +13,7 @@
     navigationLocked: true,
     noticeTimer: null, spaceDown: false, suppressClick: false,
     draggingPreviewVertex: null, selectedPreviewVertex: null, previewEditStart: null, previewUndoRecorded: false,
+    simplifySectionMode: false, sectionPoints: [], trimBumpMode: false, manualTraceFromPopup: false, manualTraceName: '',
     undoStack: [], objectAnchor: null
   };
 
@@ -78,6 +79,11 @@
       ftPerPixel: state.ftPerPixel,
       activeMode: state.activeMode,
       selectedPreviewVertex: state.selectedPreviewVertex,
+      simplifySectionMode: state.simplifySectionMode,
+      sectionPoints: copyPoints(state.sectionPoints),
+      trimBumpMode: state.trimBumpMode,
+      manualTraceFromPopup: state.manualTraceFromPopup,
+      manualTraceName: state.manualTraceName,
       featureType: $('featureType').value,
       featureName: $('featureName').value,
       confidence: $('confidence').value,
@@ -92,6 +98,8 @@
   function undoLastAction() {
     const snapshot = state.undoStack.pop();
     if (!snapshot) return;
+    state.manualTraceFromPopup = snapshot.manualTraceFromPopup;
+    state.manualTraceName = snapshot.manualTraceName;
     setMode(snapshot.activeMode);
     state.features = snapshot.features;
     state.draft = snapshot.draft;
@@ -100,6 +108,9 @@
     state.calibration = snapshot.calibration;
     state.ftPerPixel = snapshot.ftPerPixel;
     state.selectedPreviewVertex = snapshot.selectedPreviewVertex;
+    state.simplifySectionMode = snapshot.simplifySectionMode;
+    state.sectionPoints = snapshot.sectionPoints;
+    state.trimBumpMode = snapshot.trimBumpMode;
     $('featureType').value = snapshot.featureType;
     $('featureName').value = snapshot.featureName;
     $('confidence').value = snapshot.confidence;
@@ -107,8 +118,11 @@
     $('objectName').value = snapshot.objectName;
     $('outlineDetail').value = snapshot.outlineDetail;
     $('outlineDetail').disabled = Boolean(state.autoPreview?.edited);
+    $('straightenSection').textContent = state.simplifySectionMode ? 'Cancel straightening' : 'Straighten a section';
+    $('removeBump').textContent = state.trimBumpMode ? 'Cancel bump removal' : 'Remove a bump';
     $('acceptFeature').disabled = !selectedObjectKind();
-    $('objectEditor').hidden = !state.autoPreview;
+    $('objectEditor').hidden = !state.autoPreview || state.manualTraceFromPopup;
+    $('manualTracePanel').hidden = !state.manualTraceFromPopup || state.activeMode !== 'draw';
     $('removeOutlinePoint').disabled = state.selectedPreviewVertex === null;
     updateUndoButton();
     updateScaleDisplay();
@@ -157,11 +171,11 @@
     const button = $('mapLock');
     button.textContent = state.navigationLocked ? 'Unlock map' : 'Lock map';
     button.setAttribute('aria-pressed', String(state.navigationLocked));
-    button.title = state.navigationLocked ? 'Unlock to zoom and drag the map' : 'Lock map in place to trace and edit';
+    button.title = state.navigationLocked ? 'Unlock to pan and zoom; clicks still outline objects' : 'Lock the map position while you trace';
     button.disabled = !state.image;
     $('zoomIn').disabled = !state.image || state.navigationLocked;
     $('zoomOut').disabled = !state.image || state.navigationLocked;
-    canvas.style.cursor = state.panning ? 'grabbing' : state.navigationLocked ? 'crosshair' : 'grab';
+    canvas.style.cursor = state.panning ? 'grabbing' : (state.navigationLocked || ['draw', 'calibrate', 'auto-review'].includes(state.activeMode)) ? 'crosshair' : 'grab';
   }
 
   function clampOffset() {
@@ -333,6 +347,11 @@
       ctx.strokeStyle = '#ffffff';
       ctx.stroke();
     });
+    state.sectionPoints.forEach(point => {
+      ctx.beginPath(); ctx.arc(point.x, point.y, 7 / state.viewScale, 0, Math.PI * 2);
+      ctx.fillStyle = '#f6b544'; ctx.fill(); ctx.lineWidth = 2 / state.viewScale;
+      ctx.strokeStyle = '#fff'; ctx.stroke();
+    });
     ctx.restore();
   }
 
@@ -412,7 +431,9 @@
   }
 
   function setMode(mode) {
+    if (mode !== 'draw') { state.manualTraceFromPopup = false; state.manualTraceName = ''; }
     if (mode !== 'auto-review') state.autoPreview = null;
+    if (mode !== 'auto-review') { state.simplifySectionMode = false; state.sectionPoints = []; state.trimBumpMode = false; }
     if (mode !== 'auto-review') {
       state.selectedPreviewVertex = null;
       state.draggingPreviewVertex = null;
@@ -421,7 +442,8 @@
     }
     state.activeMode = mode;
     state.draft = [];
-    $('objectEditor').hidden = mode !== 'auto-review';
+    $('objectEditor').hidden = mode !== 'auto-review' || state.manualTraceFromPopup;
+    $('manualTracePanel').hidden = !state.manualTraceFromPopup || mode !== 'draw';
     state.calibrationPoints = [];
     const drawing = mode === 'draw';
     $('drawButton').textContent = drawing ? 'Cancel manual tracing' : 'Start manual tracing';
@@ -435,6 +457,13 @@
     else if (mode === 'auto-review') $('drawHelp').textContent = 'Choose the object type from the pop-up on the map.';
     else $('drawHelp').textContent = state.image ? 'Click an object for an automatic outline, or choose a type below for manual tracing.' : 'Load an image to start mapping. Scale is optional.';
     updateScaleDisplay();
+    if (state.manualTraceFromPopup && mode === 'draw') {
+      const kind = OBJECT_KINDS.flatMap(group => group.items).find(item => item[0] === state.manualTraceName);
+      $('manualTraceTitle').textContent = `Trace ${kind?.[1] || 'feature'}`;
+      $('manualTraceHelp').textContent = TYPES[$('featureType').value]?.shape === 'line'
+        ? 'Click along the bridge or path. Finish when the line follows its center.'
+        : 'Click around the feature boundary, then finish the outline.';
+    }
     render();
   }
 
@@ -488,14 +517,26 @@
 
   function positionObjectEditor(anchor) {
     const editor = $('objectEditor');
-    const x = state.offsetX + anchor.x * state.viewScale;
-    const y = state.offsetY + anchor.y * state.viewScale;
     const width = Math.min(300, stage.clientWidth - 24);
     const height = editor.offsetHeight || 250;
-    const left = Math.max(12, Math.min(stage.clientWidth - width - 12, x + 18));
-    const top = Math.max(12, Math.min(stage.clientHeight - height - 12, y - 30));
-    editor.style.left = `${left}px`;
-    editor.style.top = `${top}px`;
+    const points = state.autoPreview?.points || [anchor];
+    const xs = points.map(p => state.offsetX + p.x * state.viewScale);
+    const ys = points.map(p => state.offsetY + p.y * state.viewScale);
+    const box = { left: Math.min(...xs) - 8, right: Math.max(...xs) + 8, top: Math.min(...ys) - 8, bottom: Math.max(...ys) + 8 };
+    const clamp = (value, max, size) => Math.max(12, Math.min(max - size - 12, value));
+    const candidates = [
+      [box.right + 12, (box.top + box.bottom - height) / 2], [box.left - width - 12, (box.top + box.bottom - height) / 2],
+      [(box.left + box.right - width) / 2, box.bottom + 12], [(box.left + box.right - width) / 2, box.top - height - 12],
+      [stage.clientWidth - width - 16, 16], [16, 16]
+    ].map(([left, top]) => ({ left: clamp(left, stage.clientWidth, width), top: clamp(top, stage.clientHeight, height) }));
+    const score = ({ left, top }) => {
+      const overlapX = Math.max(0, Math.min(left + width, box.right) - Math.max(left, box.left));
+      const overlapY = Math.max(0, Math.min(top + height, box.bottom) - Math.max(top, box.top));
+      return overlapX * overlapY;
+    };
+    candidates.sort((a, b) => score(a) - score(b));
+    editor.style.left = `${candidates[0].left}px`;
+    editor.style.top = `${candidates[0].top}px`;
   }
 
   function runAutoFeatureTrace(seedPoint) {
@@ -613,6 +654,152 @@
     render();
   }
 
+  function nearestContourLocation(point, points) {
+    let best = { distance: Infinity, edge: -1, t: 0, point: null };
+    for (let i = 0; i < points.length; i++) {
+      const a = points[i], b = points[(i + 1) % points.length];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / (dx * dx + dy * dy || 1)));
+      const projected = { x: a.x + t * dx, y: a.y + t * dy };
+      const distance = Math.hypot(point.x - projected.x, point.y - projected.y);
+      if (distance < best.distance) best = { distance, edge: i, t, point: projected };
+    }
+    return best;
+  }
+
+  function finishStraightenSection() {
+    if (!state.autoPreview || state.sectionPoints.length !== 2) return;
+    const points = state.autoPreview.points;
+    const locations = state.sectionPoints.map(p => nearestContourLocation(p, points));
+    if (locations.some(p => p.distance > 80 / state.viewScale)) {
+      state.sectionPoints = [];
+      showNotice('Click closer to the outline to choose the two ends of the section.');
+      render(); return;
+    }
+    const entries = [];
+    for (let i = 0; i < points.length; i++) {
+      entries.push({ point: points[i], t: 0, edge: i });
+      locations.forEach((location, endpoint) => {
+        if (location.edge === i && location.t > 1e-5 && location.t < 1 - 1e-5) {
+          entries.push({ point: location.point, t: location.t, edge: i, endpoint });
+        }
+      });
+    }
+    entries.sort((a, b) => a.edge - b.edge || a.t - b.t);
+    locations.forEach((location, endpoint) => {
+      const exactVertex = location.t <= 1e-5 ? location.edge : (location.t >= 1 - 1e-5 ? (location.edge + 1) % points.length : -1);
+      if (exactVertex >= 0) entries.find(entry => entry.edge === exactVertex && entry.t === 0).endpoint = endpoint;
+    });
+    const ids = locations.map((_, endpoint) => entries.findIndex(entry => entry.endpoint === endpoint));
+    if (ids.some(index => index < 0) || ids[0] === ids[1]) {
+      showNotice('Choose two different points on the outline.'); return;
+    }
+    const ring = entries.map(entry => entry.point);
+    const arcLength = (from, to) => {
+      let length = 0, index = from;
+      while (index !== to) {
+        const next = (index + 1) % ring.length;
+        length += Math.hypot(ring[next].x - ring[index].x, ring[next].y - ring[index].y);
+        index = next;
+      }
+      return length;
+    };
+    const forward = arcLength(ids[0], ids[1]);
+    const backward = arcLength(ids[1], ids[0]);
+    const start = forward <= backward ? ids[1] : ids[0];
+    const end = forward <= backward ? ids[0] : ids[1];
+    const kept = [ring[start]];
+    let index = start;
+    while (index !== end) { index = (index + 1) % ring.length; kept.push(ring[index]); }
+    if (kept.length < 3) { showNotice('That section would leave too few outline points.'); return; }
+    pushUndo('straighten outline section');
+    state.autoPreview.points = copyPoints(kept);
+    state.autoPreview.edited = true;
+    $('outlineDetail').disabled = true;
+    state.sectionPoints = [];
+    state.simplifySectionMode = false;
+    $('straightenSection').textContent = 'Straighten a section';
+    showNotice('Section simplified to a straight line.');
+    render();
+  }
+
+  function handleSectionClick(point) {
+    const nearest = nearestContourLocation(point, state.autoPreview?.points || []);
+    if (nearest.distance > 80 / state.viewScale) {
+      showNotice('Click on the outline where the cleaner section should start.'); return;
+    }
+    state.sectionPoints.push(nearest.point);
+    if (state.sectionPoints.length === 2) finishStraightenSection();
+    else { showNotice('Now click the other end. Points between them will be replaced by a straight line.'); render(); }
+  }
+
+  function trimBumpAt(point) {
+    const points = state.autoPreview?.points || [];
+    if (points.length < 4) return;
+    const nearest = nearestContourLocation(point, points);
+    if (nearest.distance > 110 / state.viewScale) {
+      showNotice('Click on or near the unwanted bump in the outline.'); return;
+    }
+    const lengths = points.map((p, i) => Math.hypot(points[(i + 1) % points.length].x - p.x, points[(i + 1) % points.length].y - p.y));
+    const perimeter = lengths.reduce((sum, length) => sum + length, 0);
+    const startAt = lengths.slice(0, nearest.edge).reduce((sum, length) => sum + length, 0) + lengths[nearest.edge] * nearest.t;
+    const width = Math.min(Number($('bumpWidth').value), perimeter * .8);
+    const mod = value => ((value % perimeter) + perimeter) % perimeter;
+    const sA = mod(startAt - width / 2), sB = mod(startAt + width / 2);
+    const pointAt = distance => {
+      let remaining = distance;
+      for (let i = 0; i < lengths.length; i++) {
+        if (remaining <= lengths[i]) {
+          const t = lengths[i] ? remaining / lengths[i] : 0;
+          return { x: points[i].x + (points[(i + 1) % points.length].x - points[i].x) * t,
+            y: points[i].y + (points[(i + 1) % points.length].y - points[i].y) * t };
+        }
+        remaining -= lengths[i];
+      }
+      return { ...points[0] };
+    };
+    const nodes = [];
+    let cumulative = 0;
+    for (let i = 0; i < points.length; i++) {
+      nodes.push({ s: cumulative, point: points[i] });
+      cumulative += lengths[i];
+    }
+    nodes.push({ s: sA, point: pointAt(sA), endpoint: 'a' }, { s: sB, point: pointAt(sB), endpoint: 'b' });
+    nodes.sort((a, b) => a.s - b.s);
+    const aIndex = nodes.findIndex(node => node.endpoint === 'a');
+    const bIndex = nodes.findIndex(node => node.endpoint === 'b');
+    const forward = mod(sB - sA);
+    const clickFromA = mod(startAt - sA);
+    const removeForward = clickFromA <= forward;
+    const start = removeForward ? bIndex : aIndex;
+    const end = removeForward ? aIndex : bIndex;
+    const kept = [nodes[start].point];
+    let index = start;
+    while (index !== end) { index = (index + 1) % nodes.length; kept.push(nodes[index].point); }
+    if (kept.length < 3) { showNotice('That cut would leave too little outline. Increase the cleanup width or click elsewhere.'); return; }
+    pushUndo('remove outline bump');
+    state.autoPreview.points = copyPoints(kept);
+    state.autoPreview.edited = true;
+    $('outlineDetail').disabled = true;
+    state.trimBumpMode = false;
+    $('removeBump').textContent = 'Remove a bump';
+    showNotice('Outline bump removed. Undo is available if that cut was too large.');
+    render();
+  }
+
+  function startManualTraceFromPopup() {
+    const kind = selectedObjectKind();
+    if (!kind || !state.autoPreview) { showNotice('Choose what the object is first.'); return; }
+    state.manualTraceFromPopup = true;
+    state.manualTraceName = kind.value;
+    $('featureType').value = kind.type;
+    $('featureName').value = $('objectName').value.trim() || kind.label;
+    setMode('draw');
+    $('manualTracePanel').hidden = false;
+    updateScaleDisplay();
+    showNotice(`Trace the ${kind.label.toLowerCase()} directly on the map.`);
+  }
+
   function finishDrawing() {
     if (state.activeMode !== 'draw') return;
     const type = $('featureType').value;
@@ -630,6 +817,8 @@
       points: state.draft.map(p => ({ x: p.x, y: p.y }))
     });
     $('featureName').value = '';
+    state.manualTraceFromPopup = false;
+    state.manualTraceName = '';
     setMode(null); updateFeatureList(); showNotice(`${name} added to this site.`);
   }
 
@@ -653,9 +842,11 @@
 
   function onMapClick(event) {
     if (state.suppressClick) { state.suppressClick = false; return; }
-    if (!state.image || state.panning || !state.navigationLocked) return;
+    if (!state.image || state.panning) return;
     const p = imagePoint(event);
     if (!insideImage(p)) return;
+    if (state.activeMode === 'auto-review' && state.simplifySectionMode) { handleSectionClick(p); return; }
+    if (state.activeMode === 'auto-review' && state.trimBumpMode) { trimBumpAt(p); return; }
     if (state.activeMode === 'calibrate') {
       pushUndo('mark scale point');
       state.calibrationPoints.push(p);
@@ -836,6 +1027,28 @@
     render();
   });
   $('removeOutlinePoint').addEventListener('click', removeSelectedPreviewVertex);
+  $('straightenSection').addEventListener('click', () => {
+    if (!state.autoPreview) return;
+    state.simplifySectionMode = !state.simplifySectionMode;
+    state.sectionPoints = [];
+    $('straightenSection').textContent = state.simplifySectionMode ? 'Cancel straightening' : 'Straighten a section';
+    showNotice(state.simplifySectionMode ? 'Click two points around the clutter; the section between them will become a straight line.' : 'Straightening canceled.');
+    render();
+  });
+  $('removeBump').addEventListener('click', () => {
+    if (!state.autoPreview) return;
+    state.trimBumpMode = !state.trimBumpMode;
+    state.simplifySectionMode = false; state.sectionPoints = [];
+    $('straightenSection').textContent = 'Straighten a section';
+    $('removeBump').textContent = state.trimBumpMode ? 'Cancel bump removal' : 'Remove a bump';
+    showNotice(state.trimBumpMode ? 'Click the unwanted bump on the outline. Cleanup width controls how much border is cut away.' : 'Bump removal canceled.');
+  });
+  $('bumpWidth').addEventListener('input', () => { $('bumpWidthValue').textContent = `${$('bumpWidth').value} px`; });
+  $('traceManually').addEventListener('click', startManualTraceFromPopup);
+  $('finishManualTrace').addEventListener('click', finishDrawing);
+  $('cancelManualTrace').addEventListener('click', () => {
+    state.manualTraceFromPopup = false; state.manualTraceName = ''; $('featureName').value = ''; setMode(null);
+  });
   $('acceptFeature').addEventListener('click', acceptAutoFeature);
   $('cancelFeature').addEventListener('click', cancelAutoFeature);
   $('cancelFeatureText').addEventListener('click', cancelAutoFeature);
@@ -855,22 +1068,16 @@
     state.panning = null;
     state.suppressClick = false;
     updateNavigationUI();
-    showNotice(state.navigationLocked ? 'Map locked in place. You can trace and edit features.' : 'Map unlocked. Drag to move; scroll to zoom.');
+    showNotice(state.navigationLocked ? 'Map position locked. Clicks still trace and edit.' : 'Map unlocked. Drag or scroll to navigate; clicks still trace.');
   });
   canvas.addEventListener('click', onMapClick);
   canvas.addEventListener('dblclick', event => {
     event.preventDefault();
-    if (!state.navigationLocked) return;
     if (state.activeMode === 'auto-review') { addPreviewVertex(event); return; }
     if (state.activeMode === 'draw') finishDrawing();
   });
   canvas.addEventListener('pointerdown', event => {
-    if (!state.navigationLocked && (event.button === 0 || event.button === 1 || state.spaceDown)) {
-      state.panning = { x: event.clientX, y: event.clientY, ox: state.offsetX, oy: state.offsetY, moved: false };
-      canvas.setPointerCapture(event.pointerId); canvas.style.cursor = 'grabbing'; event.preventDefault();
-      return;
-    }
-    if (state.activeMode === 'auto-review' && event.button === 0) {
+    if (state.activeMode === 'auto-review' && !state.simplifySectionMode && event.button === 0) {
       const point = imagePoint(event);
       const index = closestPreviewVertex(point, 12 / state.viewScale);
       if (index >= 0) {
@@ -883,7 +1090,12 @@
         canvas.style.cursor = 'grabbing';
         event.preventDefault();
         render();
+        return;
       }
+    }
+    if (!state.navigationLocked && (event.button === 0 || event.button === 1 || state.spaceDown)) {
+      state.panning = { x: event.clientX, y: event.clientY, ox: state.offsetX, oy: state.offsetY, moved: false };
+      canvas.setPointerCapture(event.pointerId);
     }
   });
   canvas.addEventListener('pointermove', event => {
@@ -903,6 +1115,7 @@
       const dx = event.clientX - state.panning.x, dy = event.clientY - state.panning.y;
       if (!state.panning.moved && Math.hypot(dx, dy) < 4) return;
       state.panning.moved = true;
+      canvas.style.cursor = 'grabbing';
       state.offsetX = state.panning.ox + event.clientX - state.panning.x;
       state.offsetY = state.panning.oy + event.clientY - state.panning.y;
       clampOffset();
