@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#172b25">
+  <title>Florida-Friendly Site Mapper</title>
+  <link rel="stylesheet" href="site-mapper.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#" aria-label="Florida-Friendly Site Mapper home">
+      <span class="brand-mark" aria-hidden="true">✳</span>
+      <span><strong>Fieldnote</strong><small>FLORIDA-FRIENDLY LANDSCAPE PLANNER</small></span>
+    </a>
+    <div class="top-actions">
+      <button class="button button-quiet" id="newProject">New site</button>
+      <button class="button button-quiet" id="loadProject">Open project</button>
+      <button class="button button-primary" id="saveProject" disabled>Save site file</button>
+      <input id="projectFile" type="file" accept=".siteplan,application/json,.json" hidden>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <aside class="sidebar" aria-label="Site setup">
+      <div class="sidebar-heading">
+        <div><span class="eyebrow">SITE WORKSPACE</span><h1>Map your site</h1></div>
+        <span class="offline-tag"><i></i>On this device</span>
+      </div>
+
+      <section class="panel">
+        <div class="step-title"><span class="step-number">1</span><div><h2>Site details</h2><p>Each property is saved as its own project.</p></div></div>
+        <label class="field-label" for="siteName">Project name</label>
+        <input id="siteName" class="text-input" value="Untitled Florida site" maxlength="100">
+        <label class="field-label" for="siteLocation">City, county, or address <span class="optional">optional</span></label>
+        <input id="siteLocation" class="text-input" placeholder="e.g. Titusville, Brevard County">
+        <label class="field-label" for="imageFile">Aerial image</label>
+        <input id="imageFile" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+        <button class="dropzone" id="chooseImage" type="button">
+          <span class="upload-icon" aria-hidden="true">↑</span>
+          <span><b>Choose an aerial image</b><small>PNG, JPG, or WebP stays on this device</small></span>
+        </button>
+        <p id="imageStatus" class="subtle">No image loaded yet.</p>
+      </section>
+
+      <section class="panel">
+        <div class="step-title"><span class="step-number">2</span><div><h2>Set map scale</h2><p>Calibrate from a known distance in the image.</p></div></div>
+        <div class="calibration-help"><span class="ruler-icon" aria-hidden="true">↔</span><p>Mark two points on the aerial, then enter their real-world distance.</p></div>
+        <label class="field-label" for="distanceFeet">Distance between points</label>
+        <div class="input-with-unit"><input id="distanceFeet" class="text-input" type="number" min="0.1" step="0.1" value="100"><span>feet</span></div>
+        <button class="button button-outline full-width" id="calibrateButton" disabled>Mark scale on image</button>
+        <p id="scaleStatus" class="status-line"><span class="status-dot"></span>Scale not set</p>
+      </section>
+
+      <section class="panel">
+        <div class="step-title"><span class="step-number">3</span><div><h2>Trace site features</h2><p>Draw over the aerial. You can edit the map later.</p></div></div>
+        <label class="field-label" for="featureType">What are you tracing?</label>
+        <select id="featureType" class="text-input">
+          <option value="parcel">Property boundary · polygon</option>
+          <option value="building">Building or structure · polygon</option>
+          <option value="hardscape">Driveway, patio, or paved area · polygon</option>
+          <option value="water">Pool or water feature · polygon</option>
+          <option value="existing-bed">Existing planting bed · polygon</option>
+          <option value="no-plant">Utility or no-plant area · polygon</option>
+          <option value="path">Existing path or walk · line</option>
+          <option value="tree">Tree canopy · circle</option>
+          <option value="point">Utility, gate, or other point · marker</option>
+        </select>
+        <label class="field-label" for="featureName">Feature name <span class="optional">optional</span></label>
+        <input id="featureName" class="text-input" placeholder="e.g. Live oak">
+        <label class="field-label" for="confidence">How certain is this trace?</label>
+        <select id="confidence" class="text-input">
+          <option value="estimated">Estimated from aerial</option>
+          <option value="measured">Measured or confirmed</option>
+        </select>
+        <div class="drawing-actions">
+          <button class="button button-primary full-width" id="drawButton" disabled>Start tracing</button>
+          <button class="button button-quiet" id="undoPoint" disabled title="Remove last point">Undo point</button>
+          <button class="button button-quiet" id="finishShape" disabled>Finish</button>
+        </div>
+        <p id="drawHelp" class="subtle">Load an image and set its scale to begin.</p>
+      </section>
+
+      <section class="panel feature-panel">
+        <div class="list-heading"><div><span class="eyebrow">MAP CONTENTS</span><h2>Traced features</h2></div><span id="featureCount" class="count-badge">0</span></div>
+        <div id="featureList" class="feature-list"><p class="empty-list">Your traced shapes will appear here.</p></div>
+      </section>
+      <footer class="side-footer"><span class="lock-icon">▣</span>Images and projects stay on this device.</footer>
+    </aside>
+
+    <section class="map-area" aria-label="Aerial map editor">
+      <div class="map-toolbar">
+        <div class="map-title"><span class="map-pin">◎</span><div><strong id="mapProjectTitle">Untitled Florida site</strong><small id="mapHint">Load an aerial image to begin mapping</small></div></div>
+        <div class="map-tools">
+          <button class="icon-button" id="zoomOut" aria-label="Zoom out" title="Zoom out">−</button>
+          <span id="zoomLabel" class="zoom-label">100%</span>
+          <button class="icon-button" id="zoomIn" aria-label="Zoom in" title="Zoom in">+</button>
+          <button class="button button-quiet fit-button" id="fitMap">Fit image</button>
+          <button class="button button-quiet fit-button" id="exportMap" disabled>Export map PNG</button>
+        </div>
+      </div>
+      <div id="mapStage" class="map-stage">
+        <canvas id="mapCanvas" aria-label="Aerial image and traced site features"></canvas>
+        <div id="emptyState" class="empty-state">
+          <div class="empty-art" aria-hidden="true"><span>⌖</span><i></i><b></b></div>
+          <h2>Your map starts with an aerial</h2>
+          <p>Upload a screenshot or aerial image, set its scale, then trace the property and site features.</p>
+          <button class="button button-primary" id="emptyChooseImage">Choose aerial image</button>
+          <small>No account, cloud service, or AI required.</small>
+        </div>
+        <div id="mapNotice" class="map-notice" role="status" aria-live="polite"></div>
+        <div class="map-legend"><span><i class="legend-line parcel-color"></i>Boundary</span><span><i class="legend-line structure-color"></i>Structures</span><span><i class="legend-line tree-color"></i>Trees</span><span><i class="legend-line estimate-style"></i>Estimated</span></div>
+        <div class="orientation-badge" title="North direction is not calibrated in this first mapping version">NORTH UNSET</div>
+      </div>
+      <div class="map-footer">
+        <span id="coordinatesReadout">Image coordinates appear here</span>
+        <span id="scaleReadout">Set a scale to calculate site dimensions</span>
+        <span class="map-footer-note">Aerials can hide features under trees or shadows. Confirm important dimensions on site.</span>
+      </div>
+    </section>
+  </main>
+  <script src="site-geometry.js"></script>
+  <script src="site-mapper.js"></script>
+</body>
+</html>
