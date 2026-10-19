@@ -13,7 +13,7 @@
     navigationLocked: true,
     noticeTimer: null, spaceDown: false, suppressClick: false,
     draggingPreviewVertex: null, selectedPreviewVertex: null, previewEditStart: null, previewUndoRecorded: false,
-    simplifySectionMode: false, sectionPoints: [], trimBumpMode: false, manualTraceFromPopup: false, manualTraceName: '',
+    simplifySectionMode: false, sectionPoints: [], manualTraceFromPopup: false, manualTraceName: '',
     undoStack: [], objectAnchor: null
   };
 
@@ -81,7 +81,6 @@
       selectedPreviewVertex: state.selectedPreviewVertex,
       simplifySectionMode: state.simplifySectionMode,
       sectionPoints: copyPoints(state.sectionPoints),
-      trimBumpMode: state.trimBumpMode,
       manualTraceFromPopup: state.manualTraceFromPopup,
       manualTraceName: state.manualTraceName,
       featureType: $('featureType').value,
@@ -111,7 +110,6 @@
     state.selectedPreviewVertex = snapshot.selectedPreviewVertex;
     state.simplifySectionMode = snapshot.simplifySectionMode;
     state.sectionPoints = snapshot.sectionPoints;
-    state.trimBumpMode = snapshot.trimBumpMode;
     $('featureType').value = snapshot.featureType;
     $('featureName').value = snapshot.featureName;
     $('confidence').value = snapshot.confidence;
@@ -122,8 +120,7 @@
     $('buildingCleanupValue').textContent = `${snapshot.buildingCleanup} px`;
     $('buildingCleanupControl').hidden = selectedObjectKind()?.type !== 'building';
     $('outlineDetail').disabled = Boolean(state.autoPreview?.edited);
-    $('straightenSection').textContent = state.simplifySectionMode ? 'Cancel straightening' : 'Straighten a section';
-    $('removeBump').textContent = state.trimBumpMode ? 'Cancel bump removal' : 'Remove a bump';
+    $('straightenSection').textContent = state.simplifySectionMode ? 'Cancel section cut' : 'Cut off a section';
     $('acceptFeature').disabled = !selectedObjectKind();
     $('objectEditor').hidden = !state.autoPreview || state.manualTraceFromPopup;
     $('manualTracePanel').hidden = !state.manualTraceFromPopup || state.activeMode !== 'draw';
@@ -351,6 +348,12 @@
       ctx.strokeStyle = '#ffffff';
       ctx.stroke();
     });
+    if (state.sectionPoints.length === 2) {
+      ctx.beginPath(); ctx.moveTo(state.sectionPoints[0].x, state.sectionPoints[0].y);
+      ctx.lineTo(state.sectionPoints[1].x, state.sectionPoints[1].y);
+      ctx.strokeStyle = '#f6b544'; ctx.lineWidth = 2 / state.viewScale;
+      ctx.setLineDash([6 / state.viewScale, 4 / state.viewScale]); ctx.stroke(); ctx.setLineDash([]);
+    }
     state.sectionPoints.forEach(point => {
       ctx.beginPath(); ctx.arc(point.x, point.y, 7 / state.viewScale, 0, Math.PI * 2);
       ctx.fillStyle = '#f6b544'; ctx.fill(); ctx.lineWidth = 2 / state.viewScale;
@@ -437,7 +440,7 @@
   function setMode(mode) {
     if (mode !== 'draw') { state.manualTraceFromPopup = false; state.manualTraceName = ''; }
     if (mode !== 'auto-review') state.autoPreview = null;
-    if (mode !== 'auto-review') { state.simplifySectionMode = false; state.sectionPoints = []; state.trimBumpMode = false; }
+    if (mode !== 'auto-review') { state.simplifySectionMode = false; state.sectionPoints = []; }
     if (mode !== 'auto-review') {
       state.selectedPreviewVertex = null;
       state.draggingPreviewVertex = null;
@@ -687,15 +690,23 @@
     return best;
   }
 
-  function finishStraightenSection() {
+  function arcBetween(ring, from, to) {
+    const arc = [ring[from]];
+    let index = from;
+    while (index !== to && arc.length <= ring.length) {
+      index = (index + 1) % ring.length;
+      arc.push(ring[index]);
+    }
+    return arc;
+  }
+
+  function finishStraightenSection(removePoint) {
     if (!state.autoPreview || state.sectionPoints.length !== 2) return;
     const points = state.autoPreview.points;
-    const locations = state.sectionPoints.map(p => nearestContourLocation(p, points));
-    if (locations.some(p => p.distance > 80 / state.viewScale)) {
-      state.sectionPoints = [];
-      showNotice('Click closer to the outline to choose the two ends of the section.');
-      render(); return;
+    if (!pointInPolygon(removePoint, points)) {
+      showNotice('Click inside the outlined part you want to cut away.'); return;
     }
+    const locations = state.sectionPoints.map(p => nearestContourLocation(p, points));
     const entries = [];
     for (let i = 0; i < points.length; i++) {
       entries.push({ point: points[i], t: 0, edge: i });
@@ -715,95 +726,35 @@
       showNotice('Choose two different points on the outline.'); return;
     }
     const ring = entries.map(entry => entry.point);
-    const arcLength = (from, to) => {
-      let length = 0, index = from;
-      while (index !== to) {
-        const next = (index + 1) % ring.length;
-        length += Math.hypot(ring[next].x - ring[index].x, ring[next].y - ring[index].y);
-        index = next;
-      }
-      return length;
-    };
-    const forward = arcLength(ids[0], ids[1]);
-    const backward = arcLength(ids[1], ids[0]);
-    const start = forward <= backward ? ids[1] : ids[0];
-    const end = forward <= backward ? ids[0] : ids[1];
-    const kept = [ring[start]];
-    let index = start;
-    while (index !== end) { index = (index + 1) % ring.length; kept.push(ring[index]); }
-    if (kept.length < 3) { showNotice('That section would leave too few outline points.'); return; }
-    pushUndo('straighten outline section');
+    const firstSide = arcBetween(ring, ids[0], ids[1]);
+    const secondSide = arcBetween(ring, ids[1], ids[0]);
+    const removeFirst = pointInPolygon(removePoint, firstSide);
+    const removeSecond = pointInPolygon(removePoint, secondSide);
+    if (removeFirst === removeSecond) {
+      showNotice('That point is too close to the cut line. Click farther inside the section to remove.'); return;
+    }
+    const kept = removeFirst ? secondSide : firstSide;
+    if (kept.length < 3) { showNotice('That cut would leave too few outline points. Choose wider-spaced cut points.'); return; }
+    pushUndo('cut outline section');
     state.autoPreview.points = copyPoints(kept);
     state.autoPreview.edited = true;
     $('outlineDetail').disabled = true;
     state.sectionPoints = [];
     state.simplifySectionMode = false;
-    $('straightenSection').textContent = 'Straighten a section';
-    showNotice('Section simplified to a straight line.');
+    $('straightenSection').textContent = 'Cut off a section';
+    showNotice('Section cut. Undo is available.');
     render();
   }
 
   function handleSectionClick(point) {
+    if (state.sectionPoints.length === 2) { finishStraightenSection(point); return; }
     const nearest = nearestContourLocation(point, state.autoPreview?.points || []);
     if (nearest.distance > 80 / state.viewScale) {
-      showNotice('Click on the outline where the cleaner section should start.'); return;
+      showNotice('Click on the outline to choose the first two ends of the cut.'); return;
     }
     state.sectionPoints.push(nearest.point);
-    if (state.sectionPoints.length === 2) finishStraightenSection();
-    else { showNotice('Now click the other end. Points between them will be replaced by a straight line.'); render(); }
-  }
-
-  function trimBumpAt(point) {
-    const points = state.autoPreview?.points || [];
-    if (points.length < 4) return;
-    const nearest = nearestContourLocation(point, points);
-    if (nearest.distance > 110 / state.viewScale) {
-      showNotice('Click on or near the unwanted bump in the outline.'); return;
-    }
-    const lengths = points.map((p, i) => Math.hypot(points[(i + 1) % points.length].x - p.x, points[(i + 1) % points.length].y - p.y));
-    const perimeter = lengths.reduce((sum, length) => sum + length, 0);
-    const startAt = lengths.slice(0, nearest.edge).reduce((sum, length) => sum + length, 0) + lengths[nearest.edge] * nearest.t;
-    const width = Math.min(Number($('bumpWidth').value), perimeter * .8);
-    const mod = value => ((value % perimeter) + perimeter) % perimeter;
-    const sA = mod(startAt - width / 2), sB = mod(startAt + width / 2);
-    const pointAt = distance => {
-      let remaining = distance;
-      for (let i = 0; i < lengths.length; i++) {
-        if (remaining <= lengths[i]) {
-          const t = lengths[i] ? remaining / lengths[i] : 0;
-          return { x: points[i].x + (points[(i + 1) % points.length].x - points[i].x) * t,
-            y: points[i].y + (points[(i + 1) % points.length].y - points[i].y) * t };
-        }
-        remaining -= lengths[i];
-      }
-      return { ...points[0] };
-    };
-    const nodes = [];
-    let cumulative = 0;
-    for (let i = 0; i < points.length; i++) {
-      nodes.push({ s: cumulative, point: points[i] });
-      cumulative += lengths[i];
-    }
-    nodes.push({ s: sA, point: pointAt(sA), endpoint: 'a' }, { s: sB, point: pointAt(sB), endpoint: 'b' });
-    nodes.sort((a, b) => a.s - b.s);
-    const aIndex = nodes.findIndex(node => node.endpoint === 'a');
-    const bIndex = nodes.findIndex(node => node.endpoint === 'b');
-    const forward = mod(sB - sA);
-    const clickFromA = mod(startAt - sA);
-    const removeForward = clickFromA <= forward;
-    const start = removeForward ? bIndex : aIndex;
-    const end = removeForward ? aIndex : bIndex;
-    const kept = [nodes[start].point];
-    let index = start;
-    while (index !== end) { index = (index + 1) % nodes.length; kept.push(nodes[index].point); }
-    if (kept.length < 3) { showNotice('That cut would leave too little outline. Increase the cleanup width or click elsewhere.'); return; }
-    pushUndo('remove outline bump');
-    state.autoPreview.points = copyPoints(kept);
-    state.autoPreview.edited = true;
-    $('outlineDetail').disabled = true;
-    state.trimBumpMode = false;
-    $('removeBump').textContent = 'Remove a bump';
-    showNotice('Outline bump removed. Undo is available if that cut was too large.');
+    if (state.sectionPoints.length === 2) showNotice('Cut line marked. Now click inside the part you want to remove.');
+    else showNotice('First end marked. Click the other end of the cut line.');
     render();
   }
 
@@ -866,7 +817,6 @@
     const p = imagePoint(event);
     if (!insideImage(p)) return;
     if (state.activeMode === 'auto-review' && state.simplifySectionMode) { handleSectionClick(p); return; }
-    if (state.activeMode === 'auto-review' && state.trimBumpMode) { trimBumpAt(p); return; }
     if (state.activeMode === 'calibrate') {
       pushUndo('mark scale point');
       state.calibrationPoints.push(p);
@@ -1056,19 +1006,10 @@
     if (!state.autoPreview) return;
     state.simplifySectionMode = !state.simplifySectionMode;
     state.sectionPoints = [];
-    $('straightenSection').textContent = state.simplifySectionMode ? 'Cancel straightening' : 'Straighten a section';
-    showNotice(state.simplifySectionMode ? 'Click two points around the clutter; the section between them will become a straight line.' : 'Straightening canceled.');
+    $('straightenSection').textContent = state.simplifySectionMode ? 'Cancel section cut' : 'Cut off a section';
+    showNotice(state.simplifySectionMode ? 'Click two points on the outline, then click inside the part to remove.' : 'Section cut canceled.');
     render();
   });
-  $('removeBump').addEventListener('click', () => {
-    if (!state.autoPreview) return;
-    state.trimBumpMode = !state.trimBumpMode;
-    state.simplifySectionMode = false; state.sectionPoints = [];
-    $('straightenSection').textContent = 'Straighten a section';
-    $('removeBump').textContent = state.trimBumpMode ? 'Cancel bump removal' : 'Remove a bump';
-    showNotice(state.trimBumpMode ? 'Click the unwanted bump on the outline. Cleanup width controls how much border is cut away.' : 'Bump removal canceled.');
-  });
-  $('bumpWidth').addEventListener('input', () => { $('bumpWidthValue').textContent = `${$('bumpWidth').value} px`; });
   $('traceManually').addEventListener('click', startManualTraceFromPopup);
   $('finishManualTrace').addEventListener('click', finishDrawing);
   $('cancelManualTrace').addEventListener('click', () => {

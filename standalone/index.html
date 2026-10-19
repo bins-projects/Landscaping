@@ -121,10 +121,8 @@
               <input id="buildingCleanup" class="tolerance-slider" type="range" min="1" max="8" step="1" value="4">
               <p class="subtle">Fills tiny gaps and removes small roof-color spikes before tracing the outside edge.</p>
             </div>
-            <button class="button button-quiet" id="straightenSection">Straighten a section</button>
-            <button class="button button-quiet" id="removeBump">Remove a bump</button>
-            <label class="field-label" for="bumpWidth">Cleanup width <span id="bumpWidthValue" class="optional">140 px</span></label>
-            <input id="bumpWidth" class="tolerance-slider" type="range" min="40" max="320" step="10" value="140">
+            <button class="button button-quiet" id="straightenSection">Cut off a section</button>
+            <p class="subtle">Click two points on the outline to draw a cut line, then click inside the part to remove.</p>
             <button class="button button-quiet" id="removeOutlinePoint" disabled>Remove selected point</button>
           </details>
           <button class="button button-quiet manual-from-popup" id="traceManually">Trace this by hand</button>
