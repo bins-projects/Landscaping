@@ -700,12 +700,18 @@
     return arc;
   }
 
-  function finishStraightenSection(removePoint) {
+  function arcLength(ring, from, to) {
+    let length = 0;
+    const arc = arcBetween(ring, from, to);
+    for (let i = 1; i < arc.length; i++) {
+      length += Math.hypot(arc[i].x - arc[i - 1].x, arc[i].y - arc[i - 1].y);
+    }
+    return length;
+  }
+
+  function finishStraightenSection() {
     if (!state.autoPreview || state.sectionPoints.length !== 2) return;
     const points = state.autoPreview.points;
-    if (!pointInPolygon(removePoint, points)) {
-      showNotice('Click inside the outlined part you want to cut away.'); return;
-    }
     const locations = state.sectionPoints.map(p => nearestContourLocation(p, points));
     const entries = [];
     for (let i = 0; i < points.length; i++) {
@@ -723,39 +729,43 @@
     });
     const ids = locations.map((_, endpoint) => entries.findIndex(entry => entry.endpoint === endpoint));
     if (ids.some(index => index < 0) || ids[0] === ids[1]) {
-      showNotice('Choose two different points on the outline.'); return;
+      state.sectionPoints = [];
+      showNotice('Choose two different points on the outline.'); render(); return;
     }
     const ring = entries.map(entry => entry.point);
-    const firstSide = arcBetween(ring, ids[0], ids[1]);
-    const secondSide = arcBetween(ring, ids[1], ids[0]);
-    const removeFirst = pointInPolygon(removePoint, firstSide);
-    const removeSecond = pointInPolygon(removePoint, secondSide);
-    if (removeFirst === removeSecond) {
-      showNotice('That point is too close to the cut line. Click farther inside the section to remove.'); return;
+    const firstLength = arcLength(ring, ids[0], ids[1]);
+    const secondLength = arcLength(ring, ids[1], ids[0]);
+    const removedLength = Math.min(firstLength, secondLength);
+    const kept = firstLength <= secondLength
+      ? arcBetween(ring, ids[1], ids[0])
+      : arcBetween(ring, ids[0], ids[1]);
+    if (kept.length < 3) {
+      state.sectionPoints = [];
+      showNotice('Those points are too close together. Choose two points farther apart.'); render(); return;
     }
-    const kept = removeFirst ? secondSide : firstSide;
-    if (kept.length < 3) { showNotice('That cut would leave too few outline points. Choose wider-spaced cut points.'); return; }
-    pushUndo('cut outline section');
+    if (removedLength < 4 / state.viewScale) {
+      state.sectionPoints = [];
+      showNotice('Those points are almost touching. Choose points on either side of the extra dots.'); render(); return;
+    }
+    state.sectionPoints = [];
+    state.simplifySectionMode = false;
+    pushUndo('straighten outline section');
     state.autoPreview.points = copyPoints(kept);
     state.autoPreview.edited = true;
     $('outlineDetail').disabled = true;
-    state.sectionPoints = [];
-    state.simplifySectionMode = false;
     $('straightenSection').textContent = 'Cut off a section';
-    showNotice('Section cut. Undo is available.');
+    showNotice('Outline section straightened. Undo is available.');
     render();
   }
 
   function handleSectionClick(point) {
-    if (state.sectionPoints.length === 2) { finishStraightenSection(point); return; }
     const nearest = nearestContourLocation(point, state.autoPreview?.points || []);
     if (nearest.distance > 80 / state.viewScale) {
-      showNotice('Click on the outline to choose the first two ends of the cut.'); return;
+      showNotice('Click on the outline to mark both ends of the messy section.'); return;
     }
     state.sectionPoints.push(nearest.point);
-    if (state.sectionPoints.length === 2) showNotice('Cut line marked. Now click inside the part you want to remove.');
-    else showNotice('First end marked. Click the other end of the cut line.');
-    render();
+    if (state.sectionPoints.length === 2) finishStraightenSection();
+    else { showNotice('First end marked. Click the other end of the messy section.'); render(); }
   }
 
   function startManualTraceFromPopup() {
@@ -1007,7 +1017,7 @@
     state.simplifySectionMode = !state.simplifySectionMode;
     state.sectionPoints = [];
     $('straightenSection').textContent = state.simplifySectionMode ? 'Cancel section cut' : 'Cut off a section';
-    showNotice(state.simplifySectionMode ? 'Click two points on the outline, then click inside the part to remove.' : 'Section cut canceled.');
+    showNotice(state.simplifySectionMode ? 'Click two points around the extra dots. That stretch will become a straight line.' : 'Section cut canceled.');
     render();
   });
   $('traceManually').addEventListener('click', startManualTraceFromPopup);
