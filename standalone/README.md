@@ -19,9 +19,10 @@ Click **Select**, then click inside a pond or another feature. Choose its type i
 the fixed inspector beside the map. Water outlines start simplified to suppress
 small shoreline and canopy noise. Move the **Outline detail** slider toward
 either more detail or fewer points; the point count updates with the preview.
-Water objects also have an advanced color sensitivity control for cases where
-the first detection spills into nearby shadows or misses part of the water.
-Drag, add, or remove outline points for final corrections. The source image is
+Detected objects have an advanced color sensitivity control for cases where
+the first detection spills into nearby colors or misses part of the feature.
+Sidewalks and paths become editable centerlines; paved areas remain filled
+outlines. Drag, add, or remove points for final corrections. The source image is
 unchanged, and the map stays visible while the inspector controls remain in one
 place. Scale is optional until you need real-world measurements.
 

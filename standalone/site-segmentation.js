@@ -98,6 +98,83 @@
     return cleaned;
   }
 
+  function skeletonize(mask, width, height) {
+    const w = Math.floor(width), h = Math.floor(height);
+    let work = new Uint8Array(mask);
+    const at = (x, y) => x >= 0 && y >= 0 && x < w && y < h ? work[y * w + x] : 0;
+    for (let iteration = 0; iteration < 80; iteration++) {
+      let changed = false;
+      for (let pass = 0; pass < 2; pass++) {
+        const remove = [];
+        for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) {
+          const i = y * w + x;
+          if (!work[i]) continue;
+          const p = [at(x, y - 1), at(x + 1, y - 1), at(x + 1, y), at(x + 1, y + 1),
+            at(x, y + 1), at(x - 1, y + 1), at(x - 1, y), at(x - 1, y - 1)];
+          const count = p.reduce((sum, v) => sum + v, 0);
+          if (count < 2 || count > 6) continue;
+          let transitions = 0;
+          for (let k = 0; k < 8; k++) if (!p[k] && p[(k + 1) % 8]) transitions++;
+          if (transitions !== 1) continue;
+          const [n, ne, e, se, s, sw, west, nw] = p;
+          const preserve = pass === 0 ? n * e * s === 0 && e * s * west === 0 : n * e * west === 0 && n * s * west === 0;
+          if (preserve) remove.push(i);
+        }
+        if (remove.length) { remove.forEach(i => { work[i] = 0; }); changed = true; }
+      }
+      if (!changed) break;
+    }
+    return work;
+  }
+
+  function centerlineFromMask(mask, width, height, seedX, seedY) {
+    const w = Math.floor(width), h = Math.floor(height);
+    const skeleton = skeletonize(mask, w, h);
+    let start = -1, best = Infinity;
+    const sx = Number.isFinite(seedX) ? seedX : w / 2, sy = Number.isFinite(seedY) ? seedY : h / 2;
+    for (let i = 0; i < skeleton.length; i++) if (skeleton[i]) {
+      const x = i % w, y = Math.floor(i / w), distance = (x - sx) ** 2 + (y - sy) ** 2;
+      if (distance < best) { best = distance; start = i; }
+    }
+    if (start < 0) return [];
+    const neighbors = i => {
+      const x = i % w, y = Math.floor(i / w), out = [];
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        const nx = x + dx, ny = y + dy;
+        if (nx >= 0 && ny >= 0 && nx < w && ny < h && skeleton[ny * w + nx]) out.push(ny * w + nx);
+      }
+      return out;
+    };
+    const parent = new Int32Array(skeleton.length); parent.fill(-2);
+    const distance = new Int32Array(skeleton.length); distance.fill(-1);
+    const queue = new Int32Array(skeleton.length); let head = 0, tail = 0;
+    queue[tail++] = start; parent[start] = -1; distance[start] = 0;
+    const endpoints = [];
+    while (head < tail) {
+      const i = queue[head++], adj = neighbors(i);
+      if (adj.length <= 1) endpoints.push(i);
+      for (const n of adj) if (distance[n] < 0) { distance[n] = distance[i] + 1; parent[n] = i; queue[tail++] = n; }
+    }
+    if (!endpoints.length) endpoints.push(start);
+    endpoints.sort((a, b) => distance[b] - distance[a]);
+    let chosen = endpoints.slice(0, 2);
+    if (chosen.length === 1) {
+      let farthest = start;
+      for (let i = 0; i < tail; i++) if (distance[queue[i]] > distance[farthest]) farthest = queue[i];
+      chosen = [chosen[0], farthest];
+    }
+    const toStart = endpoint => {
+      const path = [];
+      for (let i = endpoint; i >= 0; i = parent[i]) { path.push({ x: i % w, y: Math.floor(i / w) }); if (i === start) break; }
+      return path;
+    };
+    const first = toStart(chosen[0]);
+    const second = toStart(chosen[1]).reverse();
+    const merged = [...first, ...second.slice(1)];
+    return merged.length >= 2 ? merged : first;
+  }
+
   function polygonMask(width, height, polygon) {
     const w = Math.floor(width), h = Math.floor(height);
     if (!Array.isArray(polygon) || polygon.length < 3) return null;
@@ -288,6 +365,8 @@
     return [...firstArc, ...secondArc.slice(1, -1)];
   }
 
+  function simplifyPolyline(points, tolerance) { return simplify(points, Number(tolerance) || 0); }
+
   function segmentDistanceSquared(p, a, b) {
     let x = a.x, y = a.y, dx = b.x - x, dy = b.y - y;
     if (dx || dy) {
@@ -298,7 +377,7 @@
     return dx * dx + dy * dy;
   }
 
-  const api = { regionMask, contourFromMask, simplifyContour, detectWater, polygonMask, cleanBuildingMask, cleanWaterMask };
+  const api = { regionMask, contourFromMask, simplifyContour, simplifyPolyline, centerlineFromMask, detectWater, polygonMask, cleanBuildingMask, cleanWaterMask };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.SiteSegmentation = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

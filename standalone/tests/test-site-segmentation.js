@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { regionMask, contourFromMask, simplifyContour, detectWater, cleanBuildingMask, cleanWaterMask } = require('../site-segmentation.js');
+const { regionMask, contourFromMask, simplifyContour, simplifyPolyline, centerlineFromMask, detectWater, cleanBuildingMask, cleanWaterMask } = require('../site-segmentation.js');
 
 function makeImage(width, height, water, land = [100, 155, 85]) {
   const pixels = new Uint8ClampedArray(width * height * 4);
@@ -49,6 +49,18 @@ const cleanedPond = cleanWaterMask(pondMask, pondWidth, pondHeight);
 assert.equal(cleanedPond[6 * pondWidth + 25], 0, 'water cleanup suppresses a narrow connected spur');
 assert.equal(cleanedPond[20 * pondWidth + 25], 1, 'water cleanup preserves the pond interior');
 assert.ok([...cleanedPond].reduce((sum, pixel) => sum + pixel, 0) > 450, 'cleanup keeps most of a simple pond');
+
+// A curved sidewalk mask becomes one editable centerline rather than two noisy edges.
+const walkMaskWidth = 70, walkMaskHeight = 60;
+const curvedWalkMask = new Uint8Array(walkMaskWidth * walkMaskHeight);
+const walkCenterX = y => 25 + .018 * (y - 30) ** 2;
+for (let y = 8; y < 53; y++) for (let x = 0; x < walkMaskWidth; x++) {
+  if (Math.abs(x - walkCenterX(y)) <= 3) curvedWalkMask[y * walkMaskWidth + x] = 1;
+}
+const walkCenterline = centerlineFromMask(curvedWalkMask, walkMaskWidth, walkMaskHeight, walkCenterX(30), 30);
+assert.ok(walkCenterline.length > 10, 'centerline follows the curved walkway');
+assert.ok(walkCenterline.every(p => Math.abs(p.x - walkCenterX(p.y)) <= 2), 'centerline stays near the walkway middle');
+assert.ok(simplifyPolyline(walkCenterline, 2).length < walkCenterline.length, 'line simplification reduces path points');
 
 // The automatic detector must find the large, distinct pond without a user-provided seed.
 const autoWidth = 120, autoHeight = 100;

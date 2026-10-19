@@ -42,7 +42,8 @@
       ['stream', 'Stream', 'water'], ['fountain', 'Fountain', 'water'], ['other-water', 'Other water', 'water']
     ]},
     { group: 'Paths and paved areas', items: [
-      ['sidewalk', 'Sidewalk', 'hardscape'], ['path', 'Path or walkway', 'path'], ['footbridge', 'Footbridge', 'path'],
+      ['sidewalk', 'Sidewalk / walkway centerline', 'path'], ['sidewalk-area', 'Sidewalk area', 'hardscape'],
+      ['path', 'Path or walkway', 'path'], ['footbridge', 'Footbridge', 'path'],
       ['driveway', 'Driveway', 'hardscape'], ['patio', 'Patio or deck', 'hardscape'], ['parking', 'Parking area', 'hardscape'], ['other-paved', 'Other paved area', 'hardscape']
     ]},
     { group: 'Planting and vegetation', items: [
@@ -123,9 +124,12 @@
     $('buildingCleanup').value = snapshot.buildingCleanup;
     $('buildingCleanupValue').textContent = `${snapshot.buildingCleanup} px`;
     $('buildingCleanupControl').hidden = selectedObjectKind()?.type !== 'building';
-    $('advancedDetection').hidden = selectedObjectKind()?.type !== 'water' || Boolean(state.editingFeatureId);
+    $('advancedDetection').hidden = !selectedObjectKind() || Boolean(state.editingFeatureId);
+    $('straightenSection').textContent = state.autoPreview?.geometry === 'line' ? 'Simplify path section' : 'Simplify border';
     $('outlineDetail').disabled = Boolean(state.autoPreview?.edited);
-    $('straightenSection').textContent = state.simplifySectionMode ? 'Cancel border edit' : 'Simplify border';
+    $('straightenSection').textContent = state.simplifySectionMode
+      ? (state.autoPreview?.geometry === 'line' ? 'Cancel path edit' : 'Cancel border edit')
+      : (state.autoPreview?.geometry === 'line' ? 'Simplify path section' : 'Simplify border');
     $('acceptFeature').disabled = !selectedObjectKind();
     $('acceptFeature').textContent = state.editingFeatureId ? 'Save changes' : 'Add to map';
     $('objectEditorTitle').textContent = state.editingFeatureId ? `Editing ${state.autoPreview?.name || 'feature'}` : 'Outline found — what is it?';
@@ -506,7 +510,7 @@
 
   function outlineTolerance(type) {
     // Start with a deliberately simple sketch while leaving room to add detail.
-    return ({ building: 8, water: 14, path: 4, hardscape: 8, parcel: 8, 'existing-bed': 8, 'no-plant': 8, tree: 8 })[type] ?? 10;
+    return ({ building: 8, water: 14, path: 6, hardscape: 8, parcel: 8, 'existing-bed': 8, 'no-plant': 8, tree: 8 })[type] ?? 10;
   }
 
   function populateObjectKinds() {
@@ -558,7 +562,8 @@
     $('acceptFeature').disabled = !matchedKind;
     $('outlineDetail').disabled = true;
     $('buildingCleanupControl').hidden = selectedObjectKind()?.type !== 'building';
-    $('advancedDetection').hidden = selectedObjectKind()?.type !== 'water' || Boolean(state.editingFeatureId);
+    $('advancedDetection').hidden = !selectedObjectKind() || Boolean(state.editingFeatureId);
+    $('straightenSection').textContent = feature.geometry === 'line' ? 'Simplify path section' : 'Simplify border';
     setMode('auto-review');
     updateInspectorState();
     showNotice(`Editing ${feature.name || 'saved feature'}. Its saved outline is loaded.`);
@@ -569,13 +574,14 @@
     const kind = selectedObjectKind();
     $('acceptFeature').disabled = !kind;
     $('buildingCleanupControl').hidden = !kind || kind.type !== 'building';
-    $('advancedDetection').hidden = !kind || kind.type !== 'water' || Boolean(state.editingFeatureId);
+    $('advancedDetection').hidden = !kind || Boolean(state.editingFeatureId);
     if (!state.autoPreview || !kind) return;
     state.autoPreview.type = kind.type;
     state.autoPreview.name = $('objectName').value.trim() || kind.label;
     $('buildingCleanupControl').hidden = kind.type !== 'building';
+    $('straightenSection').textContent = kind.type === 'path' ? 'Simplify path section' : 'Simplify border';
     if (!state.autoPreview.edited) {
-      if (kind.type === 'water' && state.autoPreview.pixels) rerunDetection(Number($('detectionSensitivity').value));
+      if (state.autoPreview.pixels) rerunDetection(Number($('detectionSensitivity').value));
       const tolerance = outlineTolerance(kind.type);
       $('outlineDetail').value = String(tolerance);
       $('outlineDetailValue').textContent = 'Balanced';
@@ -589,6 +595,14 @@
     if (!state.autoPreview || state.autoPreview.edited) return;
     const kind = selectedObjectKind();
     let source = state.autoPreview.contourSource;
+    if (kind?.type === 'path' && state.autoPreview.mask) {
+      source = SiteSegmentation.centerlineFromMask(state.autoPreview.mask, state.autoPreview.workWidth,
+        state.autoPreview.workHeight, state.autoPreview.seed?.x, state.autoPreview.seed?.y)
+        .map(p => ({ x: p.x * state.imageWidth / state.autoPreview.workWidth, y: p.y * state.imageHeight / state.autoPreview.workHeight }));
+      state.autoPreview.geometry = 'line';
+    } else if (kind && state.autoPreview.geometry === 'line' && !state.autoPreview.edited) {
+      state.autoPreview.geometry = TYPES[kind.type]?.shape || 'polygon';
+    }
     if (kind?.type === 'water' && state.autoPreview.mask) {
       const cleaned = SiteSegmentation.cleanWaterMask(state.autoPreview.mask, state.autoPreview.workWidth, state.autoPreview.workHeight);
       source = SiteSegmentation.contourFromMask(cleaned, state.autoPreview.workWidth, state.autoPreview.workHeight, .5)
@@ -600,7 +614,9 @@
         .map(p => ({ x: p.x * state.imageWidth / state.autoPreview.workWidth, y: p.y * state.imageHeight / state.autoPreview.workHeight }));
     }
     state.autoPreview.activeContourSource = source;
-    state.autoPreview.points = SiteSegmentation.simplifyContour(source, Number($('outlineDetail').value));
+    state.autoPreview.points = state.autoPreview.geometry === 'line'
+      ? SiteSegmentation.simplifyPolyline(source, Number($('outlineDetail').value))
+      : SiteSegmentation.simplifyContour(source, Number($('outlineDetail').value));
     $('outlinePointCount').textContent = `${state.autoPreview.points.length} points`;
   }
 
@@ -724,7 +740,8 @@
     const point = imagePoint(event), points = state.autoPreview.points;
     if (!insideImage(point)) return;
     let best = { distance: Infinity, index: -1, point: null };
-    for (let i = 0; i < points.length; i++) {
+    const edgeCount = state.autoPreview.geometry === 'line' ? points.length - 1 : points.length;
+    for (let i = 0; i < edgeCount; i++) {
       const a = points[i], b = points[(i + 1) % points.length];
       const dx = b.x - a.x, dy = b.y - a.y;
       const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / (dx * dx + dy * dy || 1)));
@@ -768,6 +785,19 @@
     return best;
   }
 
+  function nearestPolylineLocation(point, points) {
+    let best = { distance: Infinity, edge: -1, t: 0, point: null };
+    for (let i = 0; i < points.length - 1; i++) {
+      const a = points[i], b = points[i + 1];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / (dx * dx + dy * dy || 1)));
+      const projected = { x: a.x + t * dx, y: a.y + t * dy };
+      const distance = Math.hypot(point.x - projected.x, point.y - projected.y);
+      if (distance < best.distance) best = { distance, edge: i, t, point: projected };
+    }
+    return best;
+  }
+
   function arcBetween(ring, from, to) {
     const arc = [ring[from]];
     let index = from;
@@ -790,6 +820,23 @@
   function finishStraightenSection() {
     if (!state.autoPreview || state.sectionPoints.length !== 2) return;
     const points = state.autoPreview.points;
+    if (state.autoPreview.geometry === 'line') {
+      const locations = state.sectionPoints.map(p => nearestPolylineLocation(p, points))
+        .sort((a, b) => a.edge + a.t - (b.edge + b.t));
+      if (locations.some(p => p.edge < 0) || locations[1].edge + locations[1].t - locations[0].edge - locations[0].t < 1.5) {
+        state.sectionPoints = []; showNotice('Choose two points farther apart on the path.'); render(); return;
+      }
+      const [a, b] = locations;
+      const straightened = [...points.slice(0, a.edge + 1), a.point, b.point, ...points.slice(b.edge + 1)];
+      pushUndo('simplify path section');
+      state.autoPreview.points = straightened;
+      state.autoPreview.edited = true;
+      state.sectionPoints = [];
+      $('outlineDetail').disabled = true;
+      $('straightenSection').textContent = 'Cancel path edit';
+      showNotice('Path section simplified. Click two points to clean another section, or cancel path edit.');
+      render(); return;
+    }
     const locations = state.sectionPoints.map(p => nearestContourLocation(p, points));
     const entries = [];
     for (let i = 0; i < points.length; i++) {
@@ -836,7 +883,9 @@
   }
 
   function handleSectionClick(point) {
-    const nearest = nearestContourLocation(point, state.autoPreview?.points || []);
+    const nearest = state.autoPreview?.geometry === 'line'
+      ? nearestPolylineLocation(point, state.autoPreview?.points || [])
+      : nearestContourLocation(point, state.autoPreview?.points || []);
     if (nearest.distance > 80 / state.viewScale) {
       showNotice('Click on the outline to mark both ends of the messy section.'); return;
     }
@@ -1094,7 +1143,7 @@
     render();
   });
   $('detectionSensitivity').addEventListener('input', () => {
-    if (!state.autoPreview || selectedObjectKind()?.type !== 'water') return;
+    if (!state.autoPreview || !selectedObjectKind()) return;
     try { rerunDetection(Number($('detectionSensitivity').value)); }
     catch (error) { showNotice(error.message || 'Could not update water detection.'); }
   });
@@ -1108,8 +1157,9 @@
     if (!state.autoPreview) return;
     state.simplifySectionMode = !state.simplifySectionMode;
     state.sectionPoints = [];
-    $('straightenSection').textContent = state.simplifySectionMode ? 'Cancel border edit' : 'Simplify border';
-    showNotice(state.simplifySectionMode ? 'Click two points around the extra dots. That stretch will become a straight line.' : 'Border edit canceled.');
+    const pathEdit = state.autoPreview.geometry === 'line';
+    $('straightenSection').textContent = state.simplifySectionMode ? (pathEdit ? 'Cancel path edit' : 'Cancel border edit') : (pathEdit ? 'Simplify path section' : 'Simplify border');
+    showNotice(state.simplifySectionMode ? 'Click two points around the extra dots. That stretch will become a straight line.' : 'Outline edit canceled.');
     render();
   });
   $('traceManually').addEventListener('click', startManualTraceFromPopup);

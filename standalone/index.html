@@ -123,13 +123,13 @@
             <label class="field-label" for="outlineDetail">Outline detail <span id="outlineDetailValue" class="optional">Balanced</span></label>
             <div class="range-labels"><span>More detail</span><span>Fewer points</span></div>
             <input id="outlineDetail" class="tolerance-slider" type="range" min="2" max="24" step="1" value="12">
-            <p class="subtle"><span id="outlinePointCount">0 points</span> · Move either direction to tune the shoreline.</p>
+            <p class="subtle"><span id="outlinePointCount">0 points</span> · Move either direction to adjust the curve.</p>
             <details id="advancedDetection" class="advanced-detection" hidden>
-              <summary>Advanced detection</summary>
+              <summary>Detection sensitivity</summary>
               <label class="field-label" for="detectionSensitivity">Color sensitivity <span id="detectionSensitivityValue" class="optional">24</span></label>
               <div class="range-labels"><span>Less</span><span>More</span></div>
               <input id="detectionSensitivity" class="tolerance-slider" type="range" min="12" max="48" step="1" value="24">
-              <p class="subtle">Raise this only if the outline misses water. Lower it if it spills into trees, shadows, or sand.</p>
+              <p class="subtle">Lower it if the outline spills into nearby colors. Raise it if it misses part of the feature.</p>
             </details>
             <div id="buildingCleanupControl" class="building-cleanup-control" hidden>
               <label class="field-label" for="buildingCleanup">Smooth roof color noise <span id="buildingCleanupValue" class="optional">4 px</span></label>
@@ -137,7 +137,7 @@
               <p class="subtle">Fills tiny gaps and removes small roof-color spikes before tracing the outside edge.</p>
             </div>
             <button class="button button-quiet" id="straightenSection">Simplify border</button>
-            <p class="subtle">Click two points around the extra dots. The points between them become a straight line; Undo if needed.</p>
+            <p id="simplifyBorderHelp" class="subtle">Click two points around the extra dots. The points between them become a straight line; Undo if needed.</p>
             <button class="button button-quiet" id="removeOutlinePoint" disabled>Remove selected point</button>
           </details>
           <button class="button button-quiet manual-from-popup" id="traceManually">Trace this by hand</button>
