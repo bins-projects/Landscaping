@@ -13,7 +13,7 @@
     navigationLocked: true,
     noticeTimer: null, spaceDown: false, suppressClick: false,
     draggingPreviewVertex: null, selectedPreviewVertex: null, previewEditStart: null, previewUndoRecorded: false,
-    simplifySectionMode: false, sectionPoints: [], manualTraceFromPopup: false, manualTraceName: '',
+    simplifySectionMode: false, sectionPoints: [], editingFeatureId: null, manualTraceFromPopup: false, manualTraceName: '',
     undoStack: [], objectAnchor: null
   };
 
@@ -78,6 +78,7 @@
       calibration: state.calibration ? { ...state.calibration, points: copyPoints(state.calibration.points) } : null,
       ftPerPixel: state.ftPerPixel,
       activeMode: state.activeMode,
+      editingFeatureId: state.editingFeatureId,
       selectedPreviewVertex: state.selectedPreviewVertex,
       simplifySectionMode: state.simplifySectionMode,
       sectionPoints: copyPoints(state.sectionPoints),
@@ -104,6 +105,7 @@
     state.features = snapshot.features;
     state.draft = snapshot.draft;
     state.autoPreview = snapshot.autoPreview;
+    state.editingFeatureId = snapshot.editingFeatureId || null;
     state.calibrationPoints = snapshot.calibrationPoints;
     state.calibration = snapshot.calibration;
     state.ftPerPixel = snapshot.ftPerPixel;
@@ -122,6 +124,8 @@
     $('outlineDetail').disabled = Boolean(state.autoPreview?.edited);
     $('straightenSection').textContent = state.simplifySectionMode ? 'Cancel border edit' : 'Simplify border';
     $('acceptFeature').disabled = !selectedObjectKind();
+    $('acceptFeature').textContent = state.editingFeatureId ? 'Save changes' : 'Add to map';
+    $('objectEditorTitle').textContent = state.editingFeatureId ? `Editing ${state.autoPreview?.name || 'feature'}` : 'Outline found — what is it?';
     $('objectEditor').hidden = !state.autoPreview || state.manualTraceFromPopup;
     $('manualTracePanel').hidden = !state.manualTraceFromPopup || state.activeMode !== 'draw';
     $('removeOutlinePoint').disabled = state.selectedPreviewVertex === null;
@@ -243,7 +247,7 @@
     ctx.translate(state.offsetX, state.offsetY);
     ctx.scale(state.viewScale, state.viewScale);
     ctx.drawImage(state.image, 0, 0, state.imageWidth, state.imageHeight);
-    state.features.forEach(drawFeature);
+    state.features.forEach(feature => { if (feature.id !== state.editingFeatureId) drawFeature(feature); });
     if (state.autoPreview) drawFeature({ ...state.autoPreview, geometry: state.autoPreview.geometry || 'polygon' });
     if (state.autoPreview) drawPreviewVertices();
     if (state.activeMode === 'draw' && state.draft.length) drawDraft();
@@ -439,7 +443,11 @@
 
   function setMode(mode) {
     if (mode !== 'draw') { state.manualTraceFromPopup = false; state.manualTraceName = ''; }
-    if (mode !== 'auto-review') state.autoPreview = null;
+    if (mode !== 'auto-review') {
+      state.autoPreview = null; state.editingFeatureId = null;
+      $('acceptFeature').textContent = 'Add to map';
+      $('objectEditorTitle').textContent = 'Outline found — what is it?';
+    }
     if (mode !== 'auto-review') { state.simplifySectionMode = false; state.sectionPoints = []; }
     if (mode !== 'auto-review') {
       state.selectedPreviewVertex = null;
@@ -484,7 +492,8 @@
   }
 
   function outlineTolerance(type) {
-    return ({ building: 2.5, water: 1.25, path: 1.25, hardscape: 2.5, parcel: 2.5, 'existing-bed': 2, 'no-plant': 2, tree: 2.5 })[type] ?? 2.5;
+    // Start with a clean, low-point preview; specific object types can use a more detailed contour.
+    return ({ building: 2.5, water: 8, path: 1.25, hardscape: 2.5, parcel: 2.5, 'existing-bed': 2, 'no-plant': 2, tree: 2.5 })[type] ?? 8;
   }
 
   function populateObjectKinds() {
@@ -504,6 +513,42 @@
   function selectedObjectKind() {
     const option = $('objectKind').selectedOptions[0];
     return option?.dataset.type ? { value: option.value, label: option.textContent, type: option.dataset.type } : null;
+  }
+
+  function savedFeatureAt(point) {
+    for (let i = state.features.length - 1; i >= 0; i--) {
+      const feature = state.features[i];
+      if (feature.geometry === 'polygon' && pointInPolygon(point, feature.points)) return feature;
+    }
+    return null;
+  }
+
+  function openSavedFeature(feature) {
+    state.editingFeatureId = feature.id;
+    state.autoPreview = {
+      ...feature,
+      points: copyPoints(feature.points),
+      contourSource: null,
+      activeContourSource: null,
+      edited: true,
+      pixel_count: null
+    };
+    const kindOptions = OBJECT_KINDS.flatMap(group => group.items);
+    const matchedKind = kindOptions.find(item => item[1].toLowerCase() === String(feature.name || '').toLowerCase() && item[2] === feature.type)
+      || kindOptions.find(item => item[2] === feature.type);
+    $('objectKind').value = matchedKind?.[0] || '';
+    $('objectName').value = feature.name || matchedKind?.[1] || '';
+    $('featureName').value = feature.name || '';
+    $('confidence').value = feature.confidence || 'estimated';
+    $('objectEditorTitle').textContent = `Editing ${feature.name || 'feature'}`;
+    $('acceptFeature').textContent = 'Save changes';
+    $('acceptFeature').disabled = !matchedKind;
+    $('outlineDetail').disabled = true;
+    $('buildingCleanupControl').hidden = selectedObjectKind()?.type !== 'building';
+    setMode('auto-review');
+    positionObjectEditor(feature.points[0]);
+    showNotice(`Editing ${feature.name || 'saved feature'}. Its saved outline is loaded.`);
+    render();
   }
 
   function updateObjectKind() {
@@ -589,6 +634,8 @@
       $('outlineDetail').disabled = false;
       const points = SiteSegmentation.simplifyContour(contourSource, tolerance);
       if (result.count < 24 || points.length < 3) throw new Error('Could not find a clear color boundary there. Try clicking farther inside the feature.');
+      state.editingFeatureId = null;
+      $('acceptFeature').textContent = 'Add to map';
       state.autoPreview = {
         points, contourSource, mask: result.mask, workWidth: workCanvas.width, workHeight: workCanvas.height,
         activeContourSource: contourSource, edited: false, geometry: 'polygon', type,
@@ -616,18 +663,30 @@
     if (!kind) { showNotice('Choose what the object is in the map pop-up.'); return; }
     const type = kind.type;
     const name = $('objectName').value.trim() || kind.label;
-    pushUndo(`add ${name}`);
-    state.features.push({
-      id: crypto.randomUUID ? crypto.randomUUID() : `feature-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      name, type, geometry: state.autoPreview.geometry || 'polygon', confidence: $('confidence').value,
-      points: state.autoPreview.points
-    });
+    const editIndex = state.editingFeatureId ? state.features.findIndex(feature => feature.id === state.editingFeatureId) : -1;
+    pushUndo(`${editIndex >= 0 ? 'edit' : 'add'} ${name}`);
+    if (editIndex >= 0) {
+      state.features[editIndex] = {
+        ...state.features[editIndex], name, type, geometry: state.autoPreview.geometry || 'polygon',
+        confidence: $('confidence').value, points: copyPoints(state.autoPreview.points)
+      };
+    } else {
+      state.features.push({
+        id: crypto.randomUUID ? crypto.randomUUID() : `feature-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        name, type, geometry: state.autoPreview.geometry || 'polygon', confidence: $('confidence').value,
+        points: copyPoints(state.autoPreview.points)
+      });
+    }
+    state.editingFeatureId = null;
     state.autoPreview = null; $('featureName').value = ''; $('objectName').value = '';
-    setMode(null); updateFeatureList(); showNotice(`${name} added to this site.`);
+    $('acceptFeature').textContent = 'Add to map'; $('objectEditorTitle').textContent = 'Outline found — what is it?';
+    setMode(null); updateFeatureList(); showNotice(editIndex >= 0 ? `${name} changes saved.` : `${name} added to this site.`);
   }
 
   function cancelAutoFeature() {
+    state.editingFeatureId = null;
     state.autoPreview = null;
+    $('acceptFeature').textContent = 'Add to map'; $('objectEditorTitle').textContent = 'Outline found — what is it?';
     setMode(null); render();
   }
 
@@ -748,13 +807,12 @@
       showNotice('Those points are almost touching. Choose points on either side of the extra dots.'); render(); return;
     }
     state.sectionPoints = [];
-    state.simplifySectionMode = false;
     pushUndo('straighten outline section');
     state.autoPreview.points = copyPoints(kept);
     state.autoPreview.edited = true;
     $('outlineDetail').disabled = true;
-    $('straightenSection').textContent = 'Simplify border';
-    showNotice('Border simplified. Undo is available.');
+    $('straightenSection').textContent = 'Cancel border edit';
+    showNotice('Border simplified. Click two points to clean another section, or cancel border edit.');
     render();
   }
 
@@ -839,6 +897,8 @@
       return;
     }
     if (!state.activeMode) {
+      const savedFeature = savedFeatureAt(p);
+      if (savedFeature) { openSavedFeature(savedFeature); return; }
       runAutoFeatureTrace(p);
       return;
     }
@@ -862,7 +922,7 @@
         state.image = image; state.imageData = reader.result; state.imageName = file.name;
         state.imageWidth = image.naturalWidth; state.imageHeight = image.naturalHeight;
         state.ftPerPixel = null; state.calibration = null; state.calibrationPoints = [];
-        state.features = []; state.draft = []; state.activeMode = null; state.autoPreview = null; state.hasFit = false; state.navigationLocked = true; state.undoStack = [];
+        state.features = []; state.draft = []; state.activeMode = null; state.autoPreview = null; state.editingFeatureId = null; state.hasFit = false; state.navigationLocked = true; state.undoStack = [];
         setMode(null);
         $('emptyState').hidden = true;
         $('imageStatus').textContent = `${file.name} · ${image.naturalWidth.toLocaleString()} × ${image.naturalHeight.toLocaleString()} px`;
@@ -925,7 +985,7 @@
           state.ftPerPixel = Number(data.calibration?.feet_per_pixel) || null;
           state.calibration = data.calibration ? { points: data.calibration.points, distance_ft: data.calibration.distance_ft, pixel_distance: data.calibration.pixel_distance } : null;
           state.features = data.features.map(f => ({ id: f.id || `feature-${Date.now()}`, name: f.name, type: f.type, geometry: f.geometry, confidence: f.confidence, points: (f.points_image_px || []).map(p => ({ x: Number(p.x), y: Number(p.y) })) }));
-          state.activeMode = null; state.draft = []; state.autoPreview = null; state.hasFit = false; state.navigationLocked = true; state.undoStack = [];
+          state.activeMode = null; state.draft = []; state.autoPreview = null; state.editingFeatureId = null; state.hasFit = false; state.navigationLocked = true; state.undoStack = [];
           setMode(null);
           $('emptyState').hidden = true;
           $('siteName').dispatchEvent(new Event('input'));
@@ -971,7 +1031,7 @@
   function startNewSite() {
     if (hasSiteWork() && !confirm('Start a new site? Unsaved work in this tab will be cleared.')) return;
     state.image = null; state.imageData = ''; state.imageName = ''; state.imageWidth = 0; state.imageHeight = 0;
-    state.ftPerPixel = null; state.calibration = null; state.calibrationPoints = []; state.features = []; state.draft = []; state.autoPreview = null;
+    state.ftPerPixel = null; state.calibration = null; state.calibrationPoints = []; state.features = []; state.draft = []; state.autoPreview = null; state.editingFeatureId = null;
     state.activeMode = null; state.hasFit = false; state.offsetX = 0; state.offsetY = 0; state.navigationLocked = true; state.undoStack = [];
     $('siteName').value = 'Untitled Florida site'; $('siteLocation').value = '';
     $('imageStatus').textContent = 'No image loaded yet.'; $('emptyState').hidden = false;
@@ -997,7 +1057,11 @@
     updateObjectKind();
   });
   $('objectName').addEventListener('input', () => {
-    if (state.autoPreview) { state.autoPreview.name = $('objectName').value.trim(); render(); }
+    if (state.autoPreview) {
+      state.autoPreview.name = $('objectName').value.trim();
+      if (state.editingFeatureId) $('objectEditorTitle').textContent = `Editing ${state.autoPreview.name || 'feature'}`;
+      render();
+    }
   });
   $('outlineDetail').addEventListener('input', () => {
     const tolerance = Number($('outlineDetail').value);
