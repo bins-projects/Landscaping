@@ -120,7 +120,7 @@
     $('buildingCleanupValue').textContent = `${snapshot.buildingCleanup} px`;
     $('buildingCleanupControl').hidden = selectedObjectKind()?.type !== 'building';
     $('outlineDetail').disabled = Boolean(state.autoPreview?.edited);
-    $('straightenSection').textContent = state.simplifySectionMode ? 'Cancel section cut' : 'Cut off a section';
+    $('straightenSection').textContent = state.simplifySectionMode ? 'Cancel border edit' : 'Simplify border';
     $('acceptFeature').disabled = !selectedObjectKind();
     $('objectEditor').hidden = !state.autoPreview || state.manualTraceFromPopup;
     $('manualTracePanel').hidden = !state.manualTraceFromPopup || state.activeMode !== 'draw';
@@ -753,8 +753,8 @@
     state.autoPreview.points = copyPoints(kept);
     state.autoPreview.edited = true;
     $('outlineDetail').disabled = true;
-    $('straightenSection').textContent = 'Cut off a section';
-    showNotice('Outline section straightened. Undo is available.');
+    $('straightenSection').textContent = 'Simplify border';
+    showNotice('Border simplified. Undo is available.');
     render();
   }
 
@@ -1016,8 +1016,8 @@
     if (!state.autoPreview) return;
     state.simplifySectionMode = !state.simplifySectionMode;
     state.sectionPoints = [];
-    $('straightenSection').textContent = state.simplifySectionMode ? 'Cancel section cut' : 'Cut off a section';
-    showNotice(state.simplifySectionMode ? 'Click two points around the extra dots. That stretch will become a straight line.' : 'Section cut canceled.');
+    $('straightenSection').textContent = state.simplifySectionMode ? 'Cancel border edit' : 'Simplify border';
+    showNotice(state.simplifySectionMode ? 'Click two points around the extra dots. That stretch will become a straight line.' : 'Border edit canceled.');
     render();
   });
   $('traceManually').addEventListener('click', startManualTraceFromPopup);
