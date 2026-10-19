@@ -411,6 +411,8 @@
     $('exportMap').disabled = !state.image;
     $('saveProject').disabled = !state.image;
     $('drawButton').disabled = !state.image || (state.activeMode !== 'draw' && !$('featureType').value) || (state.activeMode && state.activeMode !== 'draw');
+    $('drawTool').disabled = !state.image || (state.activeMode !== 'draw' && !$('featureType').value) || (state.activeMode && state.activeMode !== 'draw');
+    $('scaleTool').disabled = !state.image || (state.activeMode && state.activeMode !== 'calibrate');
     if (!state.image) $('drawHelp').textContent = 'Load an image to start mapping. Scale is optional.';
     else if (!state.activeMode) $('drawHelp').textContent = ready ? 'Click an object for an automatic outline, or choose a type below for manual tracing.' : 'Click an object for an automatic outline, or choose a type below for manual tracing. Scale is optional.';
   }
