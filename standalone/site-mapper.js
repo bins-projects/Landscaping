@@ -16,7 +16,7 @@
     noticeTimer: null, spaceDown: false, suppressClick: false,
     draggingPreviewVertex: null, selectedPreviewVertex: null, previewEditStart: null, previewUndoRecorded: false,
     simplifySectionMode: false, sectionPoints: [], editingFeatureId: null, manualTraceFromPopup: false, manualTraceName: '',
-    undoStack: [], objectAnchor: null
+    undoStack: [], objectAnchor: null, pathStrokeActive: false, pathStrokeDrawing: false, pathStrokePoints: []
   };
 
   const TYPES = {
@@ -257,6 +257,7 @@
     state.features.forEach(feature => { if (feature.id !== state.editingFeatureId) drawFeature(feature); });
     if (state.autoPreview) drawFeature({ ...state.autoPreview, geometry: state.autoPreview.geometry || 'polygon' });
     if (state.autoPreview) drawPreviewVertices();
+    if (state.pathStrokeDrawing && state.pathStrokePoints.length) drawPathStrokeDraft();
     if (state.activeMode === 'draw' && state.draft.length) drawDraft();
     if (state.activeMode === 'calibrate' && state.calibrationPoints.length) drawCalibrationDraft();
     ctx.restore();
@@ -373,6 +374,18 @@
     ctx.restore();
   }
 
+  function drawPathStrokeDraft() {
+    const points = state.pathStrokePoints;
+    if (!points.length) return;
+    ctx.save();
+    ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y);
+    points.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 7 / state.viewScale; ctx.stroke();
+    ctx.strokeStyle = '#187bb5'; ctx.lineWidth = 3 / state.viewScale; ctx.stroke();
+    ctx.restore();
+  }
+
   function drawDraft() {
     const type = $('featureType').value;
     const spec = TYPES[type];
@@ -451,6 +464,10 @@
   }
 
   function setMode(mode) {
+    if (mode !== 'auto-review') {
+      state.pathStrokeActive = false; state.pathStrokeDrawing = false; state.pathStrokePoints = [];
+      $('pathStrokePanel').hidden = true;
+    }
     if (mode !== 'draw') { state.manualTraceFromPopup = false; state.manualTraceName = ''; }
     if (mode !== 'auto-review') {
       state.autoPreview = null; state.editingFeatureId = null;
@@ -574,6 +591,7 @@
     $('acceptFeature').disabled = !kind;
     $('buildingCleanupControl').hidden = !kind || kind.type !== 'building';
     $('advancedDetection').hidden = !kind || Boolean(state.editingFeatureId);
+    $('guidedPathControl').hidden = !kind || kind.type !== 'path';
     if (!state.autoPreview || !kind) return;
     state.autoPreview.type = kind.type;
     state.autoPreview.name = $('objectName').value.trim() || kind.label;
@@ -718,6 +736,8 @@
   }
 
   function cancelAutoFeature() {
+    state.pathStrokeActive = false; state.pathStrokeDrawing = false; state.pathStrokePoints = [];
+    $('pathStrokePanel').hidden = true;
     state.editingFeatureId = null;
     state.autoPreview = null;
     $('acceptFeature').textContent = 'Add to map'; $('objectEditorTitle').textContent = 'Outline found — what is it?';
@@ -948,6 +968,7 @@
 
   function onMapClick(event) {
     if (state.suppressClick) { state.suppressClick = false; return; }
+    if (state.pathStrokeActive) return;
     if (!state.image || state.panning) return;
     const p = imagePoint(event);
     if (!insideImage(p)) return;
@@ -1164,12 +1185,72 @@
     $('objectName').value = kind?.label || '';
     updateObjectKind();
   });
+  $('guidedPathButton').addEventListener('click', beginGuidedPathStroke);
+  $('cancelPathStroke').addEventListener('click', cancelGuidedPathStroke);
   $('objectName').addEventListener('input', () => {
     if (state.autoPreview) {
       state.autoPreview.name = $('objectName').value.trim();
       if (state.editingFeatureId) $('objectEditorTitle').textContent = `Editing ${state.autoPreview.name || 'feature'}`;
       render();
     }
+
+  function beginGuidedPathStroke() {
+    if (!state.autoPreview || selectedObjectKind()?.type !== 'path') return;
+    state.pathStrokeActive = true;
+    state.pathStrokeDrawing = false;
+    state.pathStrokePoints = [];
+    $('pathStrokePanel').hidden = false;
+    showNotice('Drag a guide down the middle of the path, then release.');
+    render();
+  }
+
+  function cancelGuidedPathStroke() {
+    state.pathStrokeActive = false;
+    state.pathStrokeDrawing = false;
+    state.pathStrokePoints = [];
+    $('pathStrokePanel').hidden = true;
+    render();
+  }
+
+  function finishGuidedPathStroke() {
+    const preview = state.autoPreview;
+    if (!preview?.pixels || state.pathStrokePoints.length < 2) {
+      showNotice('Drag a longer guide along the walkway.');
+      return;
+    }
+    try {
+      const guide = state.pathStrokePoints.map(p => ({
+        x: p.x * preview.workWidth / state.imageWidth,
+        y: p.y * preview.workHeight / state.imageHeight
+      }));
+      const result = SiteSegmentation.snapPathStroke(preview.pixels.data, preview.workWidth, preview.workHeight, guide);
+      const points = result.points.map(p => ({
+        x: p.x * state.imageWidth / preview.workWidth,
+        y: p.y * state.imageHeight / preview.workHeight
+      }));
+      if (points.length < 2) throw new Error('The guide stroke was too short. Drag it farther down the path.');
+      pushUndo('guide path with stroke');
+      preview.points = points;
+      preview.activeContourSource = points;
+      preview.geometry = 'line';
+      preview.type = 'path';
+      preview.edited = true;
+      preview.pathSnapFraction = result.snappedFraction;
+      preview.pathWidthPx = result.estimatedWidth * state.imageWidth / preview.workWidth;
+      state.selectedPreviewVertex = null;
+      $('outlineDetail').disabled = true;
+      $('outlinePointCount').textContent = `${points.length} points`;
+      $('pathStrokePanel').hidden = true;
+      state.pathStrokeActive = false;
+      state.pathStrokeDrawing = false;
+      state.pathStrokePoints = [];
+      const percent = Math.round(result.snappedFraction * 100);
+      showNotice(`Path guide ready. Edge contrast was clear along about ${percent}% of the stroke; check the bridge junction.`);
+      render();
+    } catch (error) {
+      showNotice(error.message || 'Could not follow the path edges. Try a slower stroke along the center.');
+    }
+  }
   });
   $('outlineDetail').addEventListener('input', () => {
     if (!state.autoPreview || state.autoPreview.edited) return;
@@ -1230,6 +1311,14 @@
     if (state.activeMode === 'draw') finishDrawing();
   });
   canvas.addEventListener('pointerdown', event => {
+    if (state.pathStrokeActive && state.activeMode === 'auto-review' && event.button === 0) {
+      const point = imagePoint(event);
+      if (!insideImage(point)) return;
+      state.pathStrokeDrawing = true;
+      state.pathStrokePoints = [point];
+      canvas.setPointerCapture(event.pointerId);
+      event.preventDefault(); render(); return;
+    }
     if (state.activeMode === 'auto-review' && !state.simplifySectionMode && event.button === 0) {
       const point = imagePoint(event);
       const index = closestPreviewVertex(point, 12 / state.viewScale);
@@ -1252,6 +1341,14 @@
     }
   });
   canvas.addEventListener('pointermove', event => {
+    if (state.pathStrokeDrawing) {
+      const point = imagePoint(event);
+      point.x = Math.max(0, Math.min(state.imageWidth, point.x));
+      point.y = Math.max(0, Math.min(state.imageHeight, point.y));
+      const last = state.pathStrokePoints.at(-1);
+      if (!last || Math.hypot(point.x - last.x, point.y - last.y) >= 2 / state.viewScale) state.pathStrokePoints.push(point);
+      render(); return;
+    }
     if (state.draggingPreviewVertex !== null && state.autoPreview) {
       const point = imagePoint(event);
       point.x = Math.max(0, Math.min(state.imageWidth, point.x));
@@ -1280,6 +1377,12 @@
     }
   });
   canvas.addEventListener('pointerup', () => {
+    if (state.pathStrokeDrawing) {
+      state.pathStrokeDrawing = false;
+      state.suppressClick = true;
+      finishGuidedPathStroke();
+      return;
+    }
     if (state.panning?.moved) state.suppressClick = true;
     state.panning = null;
     if (state.draggingPreviewVertex !== null) {
@@ -1311,7 +1414,10 @@
   window.addEventListener('keydown', event => {
     if (event.code === 'Space' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) { state.spaceDown = true; event.preventDefault(); }
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) { event.preventDefault(); undoLastAction(); }
-    if (event.key === 'Escape') setMode(null);
+    if (event.key === 'Escape') {
+      if (state.pathStrokeActive) cancelGuidedPathStroke();
+      else setMode(null);
+    }
     if ((event.key === 'Delete' || event.key === 'Backspace') && state.activeMode === 'auto-review' && state.selectedPreviewVertex !== null && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
       event.preventDefault(); removeSelectedPreviewVertex();
     }

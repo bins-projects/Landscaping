@@ -118,6 +118,10 @@
           <p class="subtle">Sidewalks, walkways, trails, and footbridges all use the same path trace.</p>
           <label class="field-label" for="objectName">Map label <span class="optional">editable</span></label>
           <input id="objectName" class="text-input" placeholder="Choose a specific type">
+          <div id="guidedPathControl" hidden>
+            <p class="subtle">Drag a guide down the middle and let the image edges help align it.</p>
+            <button class="button button-outline manual-from-popup" id="guidedPathButton">Guide path with a stroke</button>
+          </div>
           <details class="object-fix" open>
             <summary>Adjust outline</summary>
             <p class="subtle">The first outline is kept simple. Drag points, double-click the border to add one, or remove a selected point.</p>
@@ -152,6 +156,11 @@
           <strong id="manualTraceTitle">Trace feature</strong>
           <span id="manualTraceHelp">Click along the feature, then finish.</span>
           <div><button class="button button-primary" id="finishManualTrace">Finish outline</button><button class="button button-quiet" id="cancelManualTrace">Cancel</button></div>
+        </div>
+        <div id="pathStrokePanel" class="manual-trace-panel" hidden>
+          <strong>Guide path</strong>
+          <span>Drag from one end of the path to the other, then release to review.</span>
+          <div><button class="button button-quiet" id="cancelPathStroke">Cancel</button></div>
         </div>
         <div id="emptyState" class="empty-state">
           <div class="empty-art" aria-hidden="true"><span>⌖</span><i></i><b></b></div>

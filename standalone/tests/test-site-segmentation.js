@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { regionMask, contourFromMask, simplifyContour, simplifyPolyline, centerlineFromMask, detectWater, cleanBuildingMask, cleanWaterMask } = require('../site-segmentation.js');
+const { regionMask, contourFromMask, simplifyContour, simplifyPolyline, centerlineFromMask, snapPathStroke, detectWater, cleanBuildingMask, cleanWaterMask } = require('../site-segmentation.js');
 
 function makeImage(width, height, water, land = [100, 155, 85]) {
   const pixels = new Uint8ClampedArray(width * height * 4);
@@ -103,5 +103,11 @@ for (let y = 0; y < walkHeight; y++) for (let x = 0; x < walkWidth; x++) {
 const walkRegion = regionMask(walkPixels, walkWidth, walkHeight, 36, 40, 30);
 assert.ok(walkRegion.count > 400, 'seeded selection follows the continuous sidewalk region');
 assert.ok(contourFromMask(walkRegion.mask, walkWidth, walkHeight, 1.25).length > 10, 'winding sidewalk outline retains curved detail');
+const guideStroke = [];
+for (let y = 10; y <= 70; y += 6) guideStroke.push({ x: 36 + .01 * (y - 40) ** 2 + 2, y });
+const snappedPath = snapPathStroke(walkPixels, walkWidth, walkHeight, guideStroke);
+assert.ok(snappedPath.points.length >= 4, 'guided path creates a simplified editable centerline');
+assert.ok(snappedPath.points.every(p => Math.abs(p.x - (36 + .01 * (p.y - 40) ** 2)) < 2.5), 'edge snapping corrects a slightly off-center guide stroke');
+assert.ok(snappedPath.snappedFraction > .8, 'clear sidewalk edges are detected along most of the guide');
 
 console.log('site segmentation tests passed');

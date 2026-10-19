@@ -30,6 +30,10 @@ or remove points for final corrections. The source image is
 unchanged, and the map stays visible while the inspector controls remain in one
 place. Scale is optional until you need real-world measurements.
 
+For a path preview, choose **Path** and use **Guide path with a stroke** to drag
+roughly down its middle. The prototype uses nearby image-edge contrast to align
+the centerline; review it carefully where shadows or a bridge interrupt the edge.
+
 Scroll to zoom; drag with the middle mouse button or hold Space and drag to pan.
 Use “Export map PNG” for an annotated image. The app stores project data only in
 the file you download; it does not upload the aerial or project.

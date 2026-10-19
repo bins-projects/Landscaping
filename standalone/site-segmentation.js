@@ -367,6 +367,79 @@
 
   function simplifyPolyline(points, tolerance) { return simplify(points, Number(tolerance) || 0); }
 
+  function resamplePolyline(points, spacing) {
+    if (!Array.isArray(points) || points.length < 2) return [];
+    const out = [{ ...points[0] }];
+    let carry = 0;
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1], b = points[i], length = Math.hypot(b.x - a.x, b.y - a.y);
+      if (!length) continue;
+      for (let distance = spacing - carry; distance < length; distance += spacing) {
+        const t = distance / length;
+        out.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+      }
+      carry = (carry + length) % spacing;
+    }
+    const last = points.at(-1);
+    if (Math.hypot(out.at(-1).x - last.x, out.at(-1).y - last.y) > .5) out.push({ ...last });
+    return out;
+  }
+
+  function snapPathStroke(data, width, height, strokePoints, options = {}) {
+    const w = Math.floor(width), h = Math.floor(height);
+    if (!data || data.length < w * h * 4 || w < 3 || h < 3 || !Array.isArray(strokePoints) || strokePoints.length < 2) {
+      throw new TypeError('Drag a guide stroke along the path first.');
+    }
+    const maxHalfWidth = Math.max(5, Math.min(32, Number(options.maxHalfWidth) || 22));
+    const guide = resamplePolyline(strokePoints, 2.5);
+    const pixel = (x, y) => {
+      const px = Math.max(0, Math.min(w - 1, Math.round(x)));
+      const py = Math.max(0, Math.min(h - 1, Math.round(y)));
+      const i = (py * w + px) * 4;
+      return [data[i], data[i + 1], data[i + 2]];
+    };
+    const contrast = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+    let priorPositive = null, priorNegative = null;
+    const offsets = [], widths = [];
+    let snapped = 0;
+    for (let i = 0; i < guide.length; i++) {
+      const before = guide[Math.max(0, i - 1)], after = guide[Math.min(guide.length - 1, i + 1)];
+      const dx = after.x - before.x, dy = after.y - before.y, length = Math.hypot(dx, dy) || 1;
+      const nx = -dy / length, ny = dx / length;
+      const findEdge = (sign, prior) => {
+        let best = { distance: null, score: 0 };
+        for (let d = 1; d <= maxHalfWidth; d++) {
+          const ix = guide[i].x + nx * sign * (d - .5), iy = guide[i].y + ny * sign * (d - .5);
+          const ox = guide[i].x + nx * sign * (d + 1.5), oy = guide[i].y + ny * sign * (d + 1.5);
+          const gradient = contrast(pixel(ix, iy), pixel(ox, oy));
+          const expected = prior ?? 8;
+          const score = gradient - Math.abs(d - expected) * (prior === null ? .35 : 1.25);
+          if (score > best.score) best = { distance: d, score };
+        }
+        return best;
+      };
+      const positive = findEdge(1, priorPositive);
+      const negative = findEdge(-1, priorNegative);
+      const goodPositive = positive.score >= 12, goodNegative = negative.score >= 12;
+      if (goodPositive) priorPositive = positive.distance;
+      if (goodNegative) priorNegative = negative.distance;
+      if (goodPositive && goodNegative) snapped++;
+      const positiveDistance = goodPositive ? positive.distance : (priorPositive ?? 8);
+      const negativeDistance = goodNegative ? negative.distance : (priorNegative ?? 8);
+      offsets.push(goodPositive || goodNegative ? (positiveDistance - negativeDistance) / 2 : 0);
+      widths.push(positiveDistance + negativeDistance);
+    }
+    const points = guide.map((p, i) => {
+      const prev = offsets[Math.max(0, i - 1)], next = offsets[Math.min(offsets.length - 1, i + 1)];
+      const offset = (prev + 2 * offsets[i] + next) / 4;
+      const before = guide[Math.max(0, i - 1)], after = guide[Math.min(guide.length - 1, i + 1)];
+      const dx = after.x - before.x, dy = after.y - before.y, length = Math.hypot(dx, dy) || 1;
+      return { x: p.x - dy / length * offset, y: p.y + dx / length * offset };
+    });
+    return { points: simplifyPolyline(points, 1.5), estimatedWidth: widths.reduce((a, b) => a + b, 0) / widths.length,
+      snappedFraction: guide.length ? snapped / guide.length : 0 };
+  }
+
   function segmentDistanceSquared(p, a, b) {
     let x = a.x, y = a.y, dx = b.x - x, dy = b.y - y;
     if (dx || dy) {
@@ -377,7 +450,7 @@
     return dx * dx + dy * dy;
   }
 
-  const api = { regionMask, contourFromMask, simplifyContour, simplifyPolyline, centerlineFromMask, detectWater, polygonMask, cleanBuildingMask, cleanWaterMask };
+  const api = { regionMask, contourFromMask, simplifyContour, simplifyPolyline, centerlineFromMask, snapPathStroke, detectWater, polygonMask, cleanBuildingMask, cleanWaterMask };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.SiteSegmentation = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);
