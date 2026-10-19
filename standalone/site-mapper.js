@@ -1005,6 +1005,42 @@
     reader.readAsDataURL(file);
   }
 
+  function loadDefaultExampleImage() {
+    const dataUrl = window.FIELDNOTE_DEFAULT_IMAGE;
+    if (!dataUrl) return;
+    const image = new Image();
+    image.onload = () => {
+      state.image = image;
+      state.imageData = dataUrl;
+      state.imageName = 'country walk example.jpg';
+      state.imageWidth = image.naturalWidth;
+      state.imageHeight = image.naturalHeight;
+      state.ftPerPixel = null;
+      state.calibration = null;
+      state.calibrationPoints = [];
+      state.features = [];
+      state.draft = [];
+      state.activeMode = null;
+      state.autoPreview = null;
+      state.editingFeatureId = null;
+      state.hasFit = false;
+      state.navigationLocked = true;
+      state.undoStack = [];
+      $('siteName').value = 'Country Walk example';
+      $('siteLocation').value = '';
+      $('emptyState').hidden = true;
+      $('imageStatus').textContent = `Example image · ${image.naturalWidth.toLocaleString()} × ${image.naturalHeight.toLocaleString()} px`;
+      updateProjectHeading();
+      $('mapHint').textContent = 'Example loaded · start with a blank map';
+      updateScaleDisplay();
+      updateFeatureList();
+      updateUndoButton();
+      resizeCanvas();
+    };
+    image.onerror = () => showNotice('The bundled example image could not be opened.');
+    image.src = dataUrl;
+  }
+
   function projectObject() {
     const features = state.features.map(f => ({
       id: f.id, name: f.name, type: f.type, geometry: f.geometry, confidence: f.confidence,
@@ -1286,4 +1322,5 @@
   window.addEventListener('keyup', event => { if (event.code === 'Space') state.spaceDown = false; });
   window.addEventListener('blur', () => { state.spaceDown = false; state.panning = null; updateNavigationUI(); });
   updateProjectHeading(); updateScaleDisplay(); updateNavigationUI(); resizeCanvas();
+  loadDefaultExampleImage();
 })();

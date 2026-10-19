@@ -6,10 +6,13 @@ provider dependency.
 
 ## Use it
 
-1. Open `index.html` in a current desktop browser.
-2. Name the property and load an aerial or map screenshot (PNG, JPG, or WebP).
-3. Choose a distance visible in the image, mark its two endpoints, and enter
-   that distance in feet. Prefer a long, reliable reference measurement.
+1. Open `index.html` in a current desktop browser. The Country Walk example image
+   loads automatically with an empty map each time the app starts.
+2. Name the property and load another aerial or map screenshot (PNG, JPG, or WebP)
+   when you want to test a different site. **New site** clears the example image;
+   reopening the app starts with it again.
+3. Scale is optional. When you need real measurements, choose a distance visible
+   in the image, mark its two endpoints, and enter that distance in feet.
 4. Trace boundaries and site features. Use the feature list to review or delete
    traces. Estimated features are drawn with dashed outlines.
 5. Save the project as a `.siteplan` file. That file includes the aerial and the
