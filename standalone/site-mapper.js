@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 18728)
-Total output lines: 1431
-
 (() => {
   'use strict';
 
@@ -620,7 +617,207 @@ Total output lines: 1431
         state.autoPreview.workHeight, state.autoPreview.seed?.x, state.autoPreview.seed?.y)
         .map(p => ({ x: p.x * state.imageWidth / state.autoPreview.workWidth, y: p.y * state.imageHeight / state.autoPreview.workHeight }));
       state.autoPreview.geometry = 'line';
-    } else if (kind && sta…2728 tokens truncated…ring, from, to) {
+    } else if (kind && state.autoPreview.geometry === 'line' && !state.autoPreview.edited) {
+      state.autoPreview.geometry = TYPES[kind.type]?.shape || 'polygon';
+    }
+    if (kind?.type === 'water' && state.autoPreview.mask) {
+      const cleaned = SiteSegmentation.cleanWaterMask(state.autoPreview.mask, state.autoPreview.workWidth, state.autoPreview.workHeight);
+      source = SiteSegmentation.contourFromMask(cleaned, state.autoPreview.workWidth, state.autoPreview.workHeight, .5)
+        .map(p => ({ x: p.x * state.imageWidth / state.autoPreview.workWidth, y: p.y * state.imageHeight / state.autoPreview.workHeight }));
+    }
+    if (kind?.type === 'building' && state.autoPreview.mask) {
+      const cleaned = SiteSegmentation.cleanBuildingMask(state.autoPreview.mask, state.autoPreview.workWidth, state.autoPreview.workHeight, Number($('buildingCleanup').value));
+      source = SiteSegmentation.contourFromMask(cleaned, state.autoPreview.workWidth, state.autoPreview.workHeight, .5)
+        .map(p => ({ x: p.x * state.imageWidth / state.autoPreview.workWidth, y: p.y * state.imageHeight / state.autoPreview.workHeight }));
+    }
+    state.autoPreview.activeContourSource = source;
+    state.autoPreview.points = state.autoPreview.geometry === 'line'
+      ? SiteSegmentation.simplifyPolyline(source, Number($('outlineDetail').value))
+      : SiteSegmentation.simplifyContour(source, Number($('outlineDetail').value));
+    $('outlinePointCount').textContent = `${state.autoPreview.points.length} points`;
+  }
+
+  function updateInspectorState() {
+    $('inspectorEmpty').hidden = Boolean(state.autoPreview);
+    $('objectEditor').hidden = !state.autoPreview || state.manualTraceFromPopup;
+  }
+
+  function rerunDetection(sensitivity) {
+    const preview = state.autoPreview;
+    if (!preview?.pixels || preview.edited) return;
+    const result = SiteSegmentation.regionMask(preview.pixels.data, preview.workWidth, preview.workHeight,
+      preview.seed.x, preview.seed.y, sensitivity, preview.allowedMask);
+    preview.mask = result.mask;
+    preview.pixel_count = result.count;
+    preview.contourSource = SiteSegmentation.contourFromMask(result.mask, preview.workWidth, preview.workHeight, .5)
+      .map(p => ({ x: p.x * state.imageWidth / preview.workWidth, y: p.y * state.imageHeight / preview.workHeight }));
+    $('detectionSensitivityValue').textContent = String(sensitivity);
+    refreshPreviewOutline();
+    render();
+  }
+
+  function runAutoFeatureTrace(seedPoint) {
+    if (!state.image || !seedPoint) return;
+    try {
+      const maxDimension = 1600;
+      const ratio = Math.min(1, maxDimension / Math.max(state.imageWidth, state.imageHeight));
+      const workCanvas = document.createElement('canvas');
+      workCanvas.width = Math.max(3, Math.round(state.imageWidth * ratio));
+      workCanvas.height = Math.max(3, Math.round(state.imageHeight * ratio));
+      const workCtx = workCanvas.getContext('2d', { willReadFrequently: true });
+      workCtx.drawImage(state.image, 0, 0, workCanvas.width, workCanvas.height);
+      const pixels = workCtx.getImageData(0, 0, workCanvas.width, workCanvas.height);
+      const parcel = state.features.find(feature => feature.type === 'parcel' && feature.geometry === 'polygon');
+      const allowedPolygon = parcel?.points.map(p => ({
+        x: p.x * workCanvas.width / state.imageWidth,
+        y: p.y * workCanvas.height / state.imageHeight
+      })) || null;
+      const allowedMask = SiteSegmentation.polygonMask(workCanvas.width, workCanvas.height, allowedPolygon);
+      const seed = { x: seedPoint.x * workCanvas.width / state.imageWidth, y: seedPoint.y * workCanvas.height / state.imageHeight };
+      const result = SiteSegmentation.regionMask(pixels.data, workCanvas.width, workCanvas.height, seed.x, seed.y, 24, allowedMask);
+      const contourSource = SiteSegmentation.contourFromMask(result.mask, workCanvas.width, workCanvas.height, .5)
+        .map(p => ({ x: p.x * state.imageWidth / workCanvas.width, y: p.y * state.imageHeight / workCanvas.height }));
+      const type = null;
+      const tolerance = outlineTolerance(type);
+      $('outlineDetail').value = String(tolerance);
+      $('outlineDetailValue').textContent = 'Balanced';
+      $('outlineDetail').disabled = false;
+      const points = SiteSegmentation.simplifyContour(contourSource, tolerance);
+      if (result.count < 24 || points.length < 3) throw new Error('Could not find a clear color boundary there. Try clicking farther inside the feature.');
+      state.editingFeatureId = null;
+      $('acceptFeature').textContent = 'Add to map';
+      state.autoPreview = {
+        points, contourSource, mask: result.mask, pixels, allowedMask, seed, workWidth: workCanvas.width, workHeight: workCanvas.height,
+        activeContourSource: contourSource, edited: false, geometry: 'polygon', type,
+        name: '', confidence: $('confidence').value, pixel_count: result.count
+      };
+      state.objectAnchor = seedPoint;
+      $('objectKind').value = '';
+      $('objectName').value = '';
+      $('acceptFeature').disabled = true;
+      $('objectEditorTitle').textContent = 'Outline found — what is it?';
+      setMode('auto-review');
+      $('removeOutlinePoint').disabled = true;
+      $('detectionSensitivity').value = '24'; $('detectionSensitivityValue').textContent = '24';
+      updateInspectorState();
+      $('outlinePointCount').textContent = `${points.length} points`;
+      showNotice('Outline found. Choose its type in the inspector.');
+    } catch (error) {
+      state.autoPreview = null;
+      setMode(null);
+      showNotice(error.message || 'Automatic detection could not isolate that feature. Try another point.');
+    }
+  }
+
+  function acceptAutoFeature() {
+    if (!state.autoPreview) return;
+    const kind = selectedObjectKind();
+    if (!kind) { showNotice('Choose what the object is in the map pop-up.'); return; }
+    const type = kind.type;
+    const name = $('objectName').value.trim() || kind.label;
+    const editIndex = state.editingFeatureId ? state.features.findIndex(feature => feature.id === state.editingFeatureId) : -1;
+    pushUndo(`${editIndex >= 0 ? 'edit' : 'add'} ${name}`);
+    if (editIndex >= 0) {
+      state.features[editIndex] = {
+        ...state.features[editIndex], name, type, geometry: state.autoPreview.geometry || 'polygon',
+        confidence: $('confidence').value, points: copyPoints(state.autoPreview.points)
+      };
+    } else {
+      state.features.push({
+        id: crypto.randomUUID ? crypto.randomUUID() : `feature-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        name, type, geometry: state.autoPreview.geometry || 'polygon', confidence: $('confidence').value,
+        points: copyPoints(state.autoPreview.points)
+      });
+    }
+    state.editingFeatureId = null;
+    state.autoPreview = null; $('featureName').value = ''; $('objectName').value = '';
+    $('acceptFeature').textContent = 'Add to map'; $('objectEditorTitle').textContent = 'Outline found — what is it?';
+    setMode(null); updateFeatureList(); showNotice(editIndex >= 0 ? `${name} changes saved.` : `${name} added to this site.`);
+  }
+
+  function cancelAutoFeature() {
+    state.pathStrokeActive = false; state.pathStrokeDrawing = false; state.pathStrokePoints = [];
+    $('pathStrokePanel').hidden = true;
+    state.editingFeatureId = null;
+    state.autoPreview = null;
+    $('acceptFeature').textContent = 'Add to map'; $('objectEditorTitle').textContent = 'Outline found — what is it?';
+    setMode(null); render();
+  }
+
+  function closestPreviewVertex(point, maxDistance) {
+    const points = state.autoPreview?.points || [];
+    let nearest = -1, distance = maxDistance;
+    points.forEach((p, i) => {
+      const d = Math.hypot(p.x - point.x, p.y - point.y);
+      if (d < distance) { nearest = i; distance = d; }
+    });
+    return nearest;
+  }
+
+  function addPreviewVertex(event) {
+    if (!state.autoPreview) return;
+    const point = imagePoint(event), points = state.autoPreview.points;
+    if (!insideImage(point)) return;
+    let best = { distance: Infinity, index: -1, point: null };
+    const edgeCount = state.autoPreview.geometry === 'line' ? points.length - 1 : points.length;
+    for (let i = 0; i < edgeCount; i++) {
+      const a = points[i], b = points[(i + 1) % points.length];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / (dx * dx + dy * dy || 1)));
+      const projected = { x: a.x + t * dx, y: a.y + t * dy };
+      const distance = Math.hypot(point.x - projected.x, point.y - projected.y);
+      if (distance < best.distance) best = { distance, index: i + 1, point: projected };
+    }
+    if (best.distance > 72 / state.viewScale) return;
+    pushUndo('add outline point');
+    state.autoPreview.edited = true;
+    $('outlineDetail').disabled = true;
+    state.autoPreview.points.splice(best.index, 0, point);
+    state.selectedPreviewVertex = best.index;
+    $('removeOutlinePoint').disabled = false;
+    render();
+  }
+
+  function removeSelectedPreviewVertex() {
+    if (!state.autoPreview || state.selectedPreviewVertex === null) return;
+    const minimum = state.autoPreview.geometry === 'line' ? 2 : 3;
+    if (state.autoPreview.points.length <= minimum) { showNotice(`This feature needs at least ${minimum} points.`); return; }
+    pushUndo('remove outline point');
+    state.autoPreview.edited = true;
+    $('outlineDetail').disabled = true;
+    state.autoPreview.points.splice(state.selectedPreviewVertex, 1);
+    state.selectedPreviewVertex = null;
+    $('removeOutlinePoint').disabled = true;
+    render();
+  }
+
+  function nearestContourLocation(point, points) {
+    let best = { distance: Infinity, edge: -1, t: 0, point: null };
+    for (let i = 0; i < points.length; i++) {
+      const a = points[i], b = points[(i + 1) % points.length];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / (dx * dx + dy * dy || 1)));
+      const projected = { x: a.x + t * dx, y: a.y + t * dy };
+      const distance = Math.hypot(point.x - projected.x, point.y - projected.y);
+      if (distance < best.distance) best = { distance, edge: i, t, point: projected };
+    }
+    return best;
+  }
+
+  function nearestPolylineLocation(point, points) {
+    let best = { distance: Infinity, edge: -1, t: 0, point: null };
+    for (let i = 0; i < points.length - 1; i++) {
+      const a = points[i], b = points[i + 1];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / (dx * dx + dy * dy || 1)));
+      const projected = { x: a.x + t * dx, y: a.y + t * dy };
+      const distance = Math.hypot(point.x - projected.x, point.y - projected.y);
+      if (distance < best.distance) best = { distance, edge: i, t, point: projected };
+    }
+    return best;
+  }
+
+  function arcBetween(ring, from, to) {
     const arc = [ring[from]];
     let index = from;
     while (index !== to && arc.length <= ring.length) {
