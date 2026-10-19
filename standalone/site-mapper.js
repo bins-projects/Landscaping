@@ -5,6 +5,8 @@
   const canvas = $('mapCanvas');
   const ctx = canvas.getContext('2d');
   const stage = $('mapStage');
+  // The object editor is docked in its own column so it never covers the map.
+  $('inspectorEditorHost').appendChild($('objectEditor'));
   const state = {
     projectName: 'Untitled Florida site', location: '', imageName: '', imageData: '',
     image: null, imageWidth: 0, imageHeight: 0, ftPerPixel: null,
@@ -121,6 +123,7 @@
     $('buildingCleanup').value = snapshot.buildingCleanup;
     $('buildingCleanupValue').textContent = `${snapshot.buildingCleanup} px`;
     $('buildingCleanupControl').hidden = selectedObjectKind()?.type !== 'building';
+    $('advancedDetection').hidden = selectedObjectKind()?.type !== 'water' || Boolean(state.editingFeatureId);
     $('outlineDetail').disabled = Boolean(state.autoPreview?.edited);
     $('straightenSection').textContent = state.simplifySectionMode ? 'Cancel border edit' : 'Simplify border';
     $('acceptFeature').disabled = !selectedObjectKind();
@@ -240,6 +243,7 @@
   }
 
   function render() {
+    if (state.autoPreview) $('outlinePointCount').textContent = `${state.autoPreview.points.length} points`;
     const w = canvas.clientWidth, h = canvas.clientHeight;
     ctx.clearRect(0, 0, w, h);
     if (!state.image) return;
@@ -457,7 +461,14 @@
     }
     state.activeMode = mode;
     state.draft = [];
+    $('selectTool').classList.toggle('active', !mode || mode === 'auto-select' || mode === 'auto-review');
+    $('drawTool').classList.toggle('active', mode === 'draw');
+    $('scaleTool').classList.toggle('active', mode === 'calibrate');
+    $('selectTool').setAttribute('aria-pressed', String(!mode || mode === 'auto-select' || mode === 'auto-review'));
+    $('drawTool').setAttribute('aria-pressed', String(mode === 'draw'));
+    $('scaleTool').setAttribute('aria-pressed', String(mode === 'calibrate'));
     $('objectEditor').hidden = mode !== 'auto-review' || state.manualTraceFromPopup;
+    $('inspectorEmpty').hidden = Boolean(state.autoPreview);
     $('manualTracePanel').hidden = !state.manualTraceFromPopup || mode !== 'draw';
     state.calibrationPoints = [];
     const drawing = mode === 'draw';
@@ -492,8 +503,8 @@
   }
 
   function outlineTolerance(type) {
-    // Start with a clean, low-point preview; specific object types can use a more detailed contour.
-    return ({ building: 2.5, water: 8, path: 1.25, hardscape: 2.5, parcel: 2.5, 'existing-bed': 2, 'no-plant': 2, tree: 2.5 })[type] ?? 8;
+    // Start with a deliberately simple sketch while leaving room to add detail.
+    return ({ building: 8, water: 14, path: 4, hardscape: 8, parcel: 8, 'existing-bed': 8, 'no-plant': 8, tree: 8 })[type] ?? 10;
   }
 
   function populateObjectKinds() {
@@ -545,8 +556,9 @@
     $('acceptFeature').disabled = !matchedKind;
     $('outlineDetail').disabled = true;
     $('buildingCleanupControl').hidden = selectedObjectKind()?.type !== 'building';
+    $('advancedDetection').hidden = selectedObjectKind()?.type !== 'water' || Boolean(state.editingFeatureId);
     setMode('auto-review');
-    positionObjectEditor(feature.points[0]);
+    updateInspectorState();
     showNotice(`Editing ${feature.name || 'saved feature'}. Its saved outline is loaded.`);
     render();
   }
@@ -555,14 +567,16 @@
     const kind = selectedObjectKind();
     $('acceptFeature').disabled = !kind;
     $('buildingCleanupControl').hidden = !kind || kind.type !== 'building';
+    $('advancedDetection').hidden = !kind || kind.type !== 'water' || Boolean(state.editingFeatureId);
     if (!state.autoPreview || !kind) return;
     state.autoPreview.type = kind.type;
     state.autoPreview.name = $('objectName').value.trim() || kind.label;
     $('buildingCleanupControl').hidden = kind.type !== 'building';
     if (!state.autoPreview.edited) {
+      if (kind.type === 'water' && state.autoPreview.pixels) rerunDetection(Number($('detectionSensitivity').value));
       const tolerance = outlineTolerance(kind.type);
       $('outlineDetail').value = String(tolerance);
-      $('outlineDetailValue').textContent = `${formatNumber(tolerance)} px`;
+      $('outlineDetailValue').textContent = 'Balanced';
       refreshPreviewOutline();
     }
     if (!$('objectName').value.trim()) $('objectName').value = kind.label;
@@ -573,6 +587,11 @@
     if (!state.autoPreview || state.autoPreview.edited) return;
     const kind = selectedObjectKind();
     let source = state.autoPreview.contourSource;
+    if (kind?.type === 'water' && state.autoPreview.mask) {
+      const cleaned = SiteSegmentation.cleanWaterMask(state.autoPreview.mask, state.autoPreview.workWidth, state.autoPreview.workHeight);
+      source = SiteSegmentation.contourFromMask(cleaned, state.autoPreview.workWidth, state.autoPreview.workHeight, .5)
+        .map(p => ({ x: p.x * state.imageWidth / state.autoPreview.workWidth, y: p.y * state.imageHeight / state.autoPreview.workHeight }));
+    }
     if (kind?.type === 'building' && state.autoPreview.mask) {
       const cleaned = SiteSegmentation.cleanBuildingMask(state.autoPreview.mask, state.autoPreview.workWidth, state.autoPreview.workHeight, Number($('buildingCleanup').value));
       source = SiteSegmentation.contourFromMask(cleaned, state.autoPreview.workWidth, state.autoPreview.workHeight, .5)
@@ -580,30 +599,26 @@
     }
     state.autoPreview.activeContourSource = source;
     state.autoPreview.points = SiteSegmentation.simplifyContour(source, Number($('outlineDetail').value));
+    $('outlinePointCount').textContent = `${state.autoPreview.points.length} points`;
   }
 
-  function positionObjectEditor(anchor) {
-    const editor = $('objectEditor');
-    const width = Math.min(300, stage.clientWidth - 24);
-    const height = editor.offsetHeight || 250;
-    const points = state.autoPreview?.points || [anchor];
-    const xs = points.map(p => state.offsetX + p.x * state.viewScale);
-    const ys = points.map(p => state.offsetY + p.y * state.viewScale);
-    const box = { left: Math.min(...xs) - 8, right: Math.max(...xs) + 8, top: Math.min(...ys) - 8, bottom: Math.max(...ys) + 8 };
-    const clamp = (value, max, size) => Math.max(12, Math.min(max - size - 12, value));
-    const candidates = [
-      [box.right + 12, (box.top + box.bottom - height) / 2], [box.left - width - 12, (box.top + box.bottom - height) / 2],
-      [(box.left + box.right - width) / 2, box.bottom + 12], [(box.left + box.right - width) / 2, box.top - height - 12],
-      [stage.clientWidth - width - 16, 16], [16, 16]
-    ].map(([left, top]) => ({ left: clamp(left, stage.clientWidth, width), top: clamp(top, stage.clientHeight, height) }));
-    const score = ({ left, top }) => {
-      const overlapX = Math.max(0, Math.min(left + width, box.right) - Math.max(left, box.left));
-      const overlapY = Math.max(0, Math.min(top + height, box.bottom) - Math.max(top, box.top));
-      return overlapX * overlapY;
-    };
-    candidates.sort((a, b) => score(a) - score(b));
-    editor.style.left = `${candidates[0].left}px`;
-    editor.style.top = `${candidates[0].top}px`;
+  function updateInspectorState() {
+    $('inspectorEmpty').hidden = Boolean(state.autoPreview);
+    $('objectEditor').hidden = !state.autoPreview || state.manualTraceFromPopup;
+  }
+
+  function rerunDetection(sensitivity) {
+    const preview = state.autoPreview;
+    if (!preview?.pixels || preview.edited) return;
+    const result = SiteSegmentation.regionMask(preview.pixels.data, preview.workWidth, preview.workHeight,
+      preview.seed.x, preview.seed.y, sensitivity, preview.allowedMask);
+    preview.mask = result.mask;
+    preview.pixel_count = result.count;
+    preview.contourSource = SiteSegmentation.contourFromMask(result.mask, preview.workWidth, preview.workHeight, .5)
+      .map(p => ({ x: p.x * state.imageWidth / preview.workWidth, y: p.y * state.imageHeight / preview.workHeight }));
+    $('detectionSensitivityValue').textContent = String(sensitivity);
+    refreshPreviewOutline();
+    render();
   }
 
   function runAutoFeatureTrace(seedPoint) {
@@ -624,20 +639,20 @@
       })) || null;
       const allowedMask = SiteSegmentation.polygonMask(workCanvas.width, workCanvas.height, allowedPolygon);
       const seed = { x: seedPoint.x * workCanvas.width / state.imageWidth, y: seedPoint.y * workCanvas.height / state.imageHeight };
-      const result = SiteSegmentation.regionMask(pixels.data, workCanvas.width, workCanvas.height, seed.x, seed.y, 34, allowedMask);
+      const result = SiteSegmentation.regionMask(pixels.data, workCanvas.width, workCanvas.height, seed.x, seed.y, 24, allowedMask);
       const contourSource = SiteSegmentation.contourFromMask(result.mask, workCanvas.width, workCanvas.height, .5)
         .map(p => ({ x: p.x * state.imageWidth / workCanvas.width, y: p.y * state.imageHeight / workCanvas.height }));
       const type = null;
       const tolerance = outlineTolerance(type);
       $('outlineDetail').value = String(tolerance);
-      $('outlineDetailValue').textContent = `${formatNumber(tolerance)} px`;
+      $('outlineDetailValue').textContent = 'Balanced';
       $('outlineDetail').disabled = false;
       const points = SiteSegmentation.simplifyContour(contourSource, tolerance);
       if (result.count < 24 || points.length < 3) throw new Error('Could not find a clear color boundary there. Try clicking farther inside the feature.');
       state.editingFeatureId = null;
       $('acceptFeature').textContent = 'Add to map';
       state.autoPreview = {
-        points, contourSource, mask: result.mask, workWidth: workCanvas.width, workHeight: workCanvas.height,
+        points, contourSource, mask: result.mask, pixels, allowedMask, seed, workWidth: workCanvas.width, workHeight: workCanvas.height,
         activeContourSource: contourSource, edited: false, geometry: 'polygon', type,
         name: '', confidence: $('confidence').value, pixel_count: result.count
       };
@@ -648,8 +663,10 @@
       $('objectEditorTitle').textContent = 'Outline found — what is it?';
       setMode('auto-review');
       $('removeOutlinePoint').disabled = true;
-      positionObjectEditor(seedPoint);
-      showNotice('Outline found. Choose its type in the map pop-up.');
+      $('detectionSensitivity').value = '24'; $('detectionSensitivityValue').textContent = '24';
+      updateInspectorState();
+      $('outlinePointCount').textContent = `${points.length} points`;
+      showNotice('Outline found. Choose its type in the inspector.');
     } catch (error) {
       state.autoPreview = null;
       setMode(null);
@@ -893,6 +910,8 @@
       return;
     }
     if (state.activeMode === 'auto-select') {
+      const savedFeature = savedFeatureAt(p);
+      if (savedFeature) { openSavedFeature(savedFeature); return; }
       runAutoFeatureTrace(p);
       return;
     }
@@ -1045,6 +1064,9 @@
   $('imageFile').addEventListener('change', e => openImage(e.target.files[0]));
   $('calibrateButton').addEventListener('click', () => setMode(state.activeMode === 'calibrate' ? null : 'calibrate'));
   $('drawButton').addEventListener('click', () => setMode(state.activeMode === 'draw' ? null : 'draw'));
+  $('selectTool').addEventListener('click', () => setMode('auto-select'));
+  $('drawTool').addEventListener('click', () => setMode(state.activeMode === 'draw' ? 'auto-select' : 'draw'));
+  $('scaleTool').addEventListener('click', () => setMode(state.activeMode === 'calibrate' ? 'auto-select' : 'calibrate'));
   $('finishShape').addEventListener('click', finishDrawing);
   $('undoPoint').addEventListener('click', undoLastAction);
   $('featureType').addEventListener('change', () => {
@@ -1064,11 +1086,15 @@
     }
   });
   $('outlineDetail').addEventListener('input', () => {
-    const tolerance = Number($('outlineDetail').value);
-    $('outlineDetailValue').textContent = `${formatNumber(tolerance)} px`;
     if (!state.autoPreview || state.autoPreview.edited) return;
     refreshPreviewOutline();
+    $('outlineDetailValue').textContent = `${state.autoPreview.points.length} points`;
     render();
+  });
+  $('detectionSensitivity').addEventListener('input', () => {
+    if (!state.autoPreview || selectedObjectKind()?.type !== 'water') return;
+    try { rerunDetection(Number($('detectionSensitivity').value)); }
+    catch (error) { showNotice(error.message || 'Could not update water detection.'); }
   });
   $('buildingCleanup').addEventListener('input', () => {
     $('buildingCleanupValue').textContent = `${$('buildingCleanup').value} px`;

@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { regionMask, contourFromMask, simplifyContour, detectWater, cleanBuildingMask } = require('../site-segmentation.js');
+const { regionMask, contourFromMask, simplifyContour, detectWater, cleanBuildingMask, cleanWaterMask } = require('../site-segmentation.js');
 
 function makeImage(width, height, water, land = [100, 155, 85]) {
   const pixels = new Uint8ClampedArray(width * height * 4);
@@ -39,6 +39,16 @@ const cleanedRoofArea = [...cleanedRoof].reduce((sum, pixel) => sum + pixel, 0);
 assert.ok(cleanedRoofArea >= 278 && cleanedRoofArea <= 282, 'cleanup preserves the main building footprint');
 assert.equal(cleanedRoof[6 * roofWidth + 19], 0, 'cleanup removes a narrow roof-color spur');
 assert.equal(cleanedRoof[14 * roofWidth + 10], 1, 'cleanup fills a one-pixel gap in the roof edge');
+
+// Water cleanup removes a narrow canopy-like spur while keeping the broad pond footprint.
+const pondWidth = 50, pondHeight = 40;
+const pondMask = new Uint8Array(pondWidth * pondHeight);
+for (let y = 10; y < 30; y++) for (let x = 12; x < 38; x++) pondMask[y * pondWidth + x] = 1;
+for (let y = 4; y < 10; y++) pondMask[y * pondWidth + 25] = 1;
+const cleanedPond = cleanWaterMask(pondMask, pondWidth, pondHeight);
+assert.equal(cleanedPond[6 * pondWidth + 25], 0, 'water cleanup suppresses a narrow connected spur');
+assert.equal(cleanedPond[20 * pondWidth + 25], 1, 'water cleanup preserves the pond interior');
+assert.ok([...cleanedPond].reduce((sum, pixel) => sum + pixel, 0) > 450, 'cleanup keeps most of a simple pond');
 
 // The automatic detector must find the large, distinct pond without a user-provided seed.
 const autoWidth = 120, autoHeight = 100;

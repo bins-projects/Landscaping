@@ -84,6 +84,20 @@
     return cleaned;
   }
 
+  function cleanWaterMask(mask, width, height) {
+    // Suppress small canopy/shadow flecks and shallow one-pixel shoreline noise,
+    // while leaving the original image available for manual point corrections.
+    let cleaned = morphologyPass(mask, width, height, 1, false, true);
+    cleaned = morphologyPass(cleaned, width, height, 1, false, false);
+    cleaned = morphologyPass(cleaned, width, height, 1, true, true);
+    cleaned = morphologyPass(cleaned, width, height, 1, true, false);
+    cleaned = morphologyPass(cleaned, width, height, 2, true, true);
+    cleaned = morphologyPass(cleaned, width, height, 2, true, false);
+    cleaned = morphologyPass(cleaned, width, height, 2, false, true);
+    cleaned = morphologyPass(cleaned, width, height, 2, false, false);
+    return cleaned;
+  }
+
   function polygonMask(width, height, polygon) {
     const w = Math.floor(width), h = Math.floor(height);
     if (!Array.isArray(polygon) || polygon.length < 3) return null;
@@ -284,7 +298,7 @@
     return dx * dx + dy * dy;
   }
 
-  const api = { regionMask, contourFromMask, simplifyContour, detectWater, polygonMask, cleanBuildingMask };
+  const api = { regionMask, contourFromMask, simplifyContour, detectWater, polygonMask, cleanBuildingMask, cleanWaterMask };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.SiteSegmentation = api;
 })(typeof globalThis !== 'undefined' ? globalThis : window);

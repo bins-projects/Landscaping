@@ -93,6 +93,11 @@
     <section class="map-area" aria-label="Aerial map editor">
       <div class="map-toolbar">
         <div class="map-title"><span class="map-pin">◎</span><div><strong id="mapProjectTitle">Untitled Florida site</strong><small id="mapHint">Load an aerial image to begin mapping</small></div></div>
+        <div class="mode-buttons" role="toolbar" aria-label="Map tools">
+          <button class="mode-button active" id="selectTool" type="button">Select</button>
+          <button class="mode-button" id="drawTool" type="button">Draw</button>
+          <button class="mode-button" id="scaleTool" type="button">Scale</button>
+        </div>
         <div class="map-tools">
           <button class="button button-quiet map-lock-button" id="undoAction" disabled title="Undo last mapping action (Ctrl+Z)">Undo</button>
           <button class="button button-quiet map-lock-button" id="mapLock" aria-pressed="true" title="Unlock to zoom and drag the map">Unlock map</button>
@@ -106,17 +111,26 @@
       <div id="mapStage" class="map-stage">
         <canvas id="mapCanvas" aria-label="Aerial image and traced site features"></canvas>
         <div id="objectEditor" class="object-editor" hidden>
+          <div class="object-editor-scroll">
           <div class="object-editor-heading"><strong id="objectEditorTitle">Detected object</strong><button class="object-close" id="cancelFeature" aria-label="Discard detected outline" title="Discard">×</button></div>
           <label class="field-label" for="objectKind">What is this?</label>
           <select id="objectKind" class="text-input"><option value="" selected>Choose an object type</option></select>
           <label class="field-label" for="objectName">Map label <span class="optional">editable</span></label>
           <input id="objectName" class="text-input" placeholder="Choose a specific type">
-          <details class="object-fix">
-            <summary>Fix this outline</summary>
-            <p class="subtle">Drag the dots. Double-click a border to add a point. Click a dot, then Remove point.</p>
-            <label class="field-label" for="outlineDetail">Outline detail <span id="outlineDetailValue" class="optional">2 px</span></label>
-            <input id="outlineDetail" class="tolerance-slider" type="range" min="0.5" max="8" step="0.25" value="2">
-            <p class="subtle">Higher values use fewer points; lower values keep more detail.</p>
+          <details class="object-fix" open>
+            <summary>Adjust outline</summary>
+            <p class="subtle">The first outline is kept simple. Drag points, double-click the border to add one, or remove a selected point.</p>
+            <label class="field-label" for="outlineDetail">Outline detail <span id="outlineDetailValue" class="optional">Balanced</span></label>
+            <div class="range-labels"><span>More detail</span><span>Fewer points</span></div>
+            <input id="outlineDetail" class="tolerance-slider" type="range" min="2" max="24" step="1" value="12">
+            <p class="subtle"><span id="outlinePointCount">0 points</span> · Move either direction to tune the shoreline.</p>
+            <details id="advancedDetection" class="advanced-detection" hidden>
+              <summary>Advanced detection</summary>
+              <label class="field-label" for="detectionSensitivity">Color sensitivity <span id="detectionSensitivityValue" class="optional">24</span></label>
+              <div class="range-labels"><span>Less</span><span>More</span></div>
+              <input id="detectionSensitivity" class="tolerance-slider" type="range" min="12" max="48" step="1" value="24">
+              <p class="subtle">Raise this only if the outline misses water. Lower it if it spills into trees, shadows, or sand.</p>
+            </details>
             <div id="buildingCleanupControl" class="building-cleanup-control" hidden>
               <label class="field-label" for="buildingCleanup">Smooth roof color noise <span id="buildingCleanupValue" class="optional">4 px</span></label>
               <input id="buildingCleanup" class="tolerance-slider" type="range" min="1" max="8" step="1" value="4">
@@ -127,6 +141,7 @@
             <button class="button button-quiet" id="removeOutlinePoint" disabled>Remove selected point</button>
           </details>
           <button class="button button-quiet manual-from-popup" id="traceManually">Trace this by hand</button>
+          </div>
           <div class="object-editor-actions">
             <button class="button button-primary" id="acceptFeature" disabled>Add to map</button>
             <button class="button button-quiet" id="cancelFeatureText">Discard</button>
@@ -154,6 +169,10 @@
         <span class="map-footer-note">Aerials can hide features under trees or shadows. Confirm important dimensions on site.</span>
       </div>
     </section>
+    <aside class="inspector-rail" aria-label="Selected feature settings">
+      <div id="inspectorEmpty" class="inspector-empty"><span class="eyebrow">INSPECTOR</span><h2>Feature settings</h2><p>Click a feature on the map to adjust its outline and label. The controls stay here while you work.</p></div>
+      <div id="inspectorEditorHost"></div>
+    </aside>
   </main>
   <script src="site-geometry.js"></script>
   <script src="site-segmentation.js"></script>
