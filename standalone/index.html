@@ -54,7 +54,7 @@
           <option value="water">Pond, pool, or other water body · polygon</option>
           <option value="existing-bed">Existing planting bed · polygon</option>
           <option value="no-plant">Utility or no-plant area · polygon</option>
-          <option value="path">Existing path or walk · line</option>
+          <option value="path">Path (sidewalk, walkway, trail, or bridge) · line</option>
           <option value="tree">Tree canopy · circle</option>
           <option value="point">Utility, gate, or other point · marker</option>
         </select>
@@ -115,6 +115,7 @@
           <div class="object-editor-heading"><strong id="objectEditorTitle">Detected object</strong><button class="object-close" id="cancelFeature" aria-label="Discard detected outline" title="Discard">×</button></div>
           <label class="field-label" for="objectKind">What is this?</label>
           <select id="objectKind" class="text-input"><option value="" selected>Choose an object type</option></select>
+          <p class="subtle">Sidewalks, walkways, trails, and footbridges all use the same path trace.</p>
           <label class="field-label" for="objectName">Map label <span class="optional">editable</span></label>
           <input id="objectName" class="text-input" placeholder="Choose a specific type">
           <details class="object-fix" open>

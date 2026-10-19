@@ -24,8 +24,9 @@ small shoreline and canopy noise. Move the **Outline detail** slider toward
 either more detail or fewer points; the point count updates with the preview.
 Detected objects have an advanced color sensitivity control for cases where
 the first detection spills into nearby colors or misses part of the feature.
-Sidewalks and paths become editable centerlines; paved areas remain filled
-outlines. Drag, add, or remove points for final corrections. The source image is
+Sidewalks, walkways, trails, and footbridges share one editable path centerline;
+driveways, patios, and other paved surfaces remain filled outlines. Drag, add,
+or remove points for final corrections. The source image is
 unchanged, and the map stays visible while the inspector controls remain in one
 place. Scale is optional until you need real-world measurements.
 

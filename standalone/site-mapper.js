@@ -42,8 +42,7 @@
       ['stream', 'Stream', 'water'], ['fountain', 'Fountain', 'water'], ['other-water', 'Other water', 'water']
     ]},
     { group: 'Paths and paved areas', items: [
-      ['sidewalk', 'Sidewalk / walkway centerline', 'path'], ['sidewalk-area', 'Sidewalk area', 'hardscape'],
-      ['path', 'Path or walkway', 'path'], ['footbridge', 'Footbridge', 'path'],
+      ['path', 'Path', 'path'],
       ['driveway', 'Driveway', 'hardscape'], ['patio', 'Patio or deck', 'hardscape'], ['parking', 'Parking area', 'hardscape'], ['other-paved', 'Other paved area', 'hardscape']
     ]},
     { group: 'Planting and vegetation', items: [
