@@ -1137,7 +1137,11 @@
     const out = document.createElement('canvas');
     out.width = state.imageWidth; out.height = state.imageHeight;
     const outCtx = out.getContext('2d');
+    if (state.lineMapCanvas && state.photoOpacity < .06) { outCtx.fillStyle = '#fff'; outCtx.fillRect(0, 0, state.imageWidth, state.imageHeight); }
+    outCtx.globalAlpha = state.photoOpacity;
     outCtx.drawImage(state.image, 0, 0);
+    outCtx.globalAlpha = 1;
+    if (state.lineMapCanvas) outCtx.drawImage(state.lineMapCanvas, 0, 0, state.imageWidth, state.imageHeight);
     state.features.forEach(f => {
       const spec = TYPES[f.type] || TYPES.point, pts = f.points;
       outCtx.save(); outCtx.strokeStyle = spec.color; outCtx.fillStyle = `${spec.color}30`; outCtx.lineWidth = Math.max(2, state.imageWidth / 1600); outCtx.setLineDash(f.confidence === 'estimated' ? [8, 5] : []);
