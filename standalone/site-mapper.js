@@ -253,7 +253,11 @@
     ctx.save();
     ctx.translate(state.offsetX, state.offsetY);
     ctx.scale(state.viewScale, state.viewScale);
+    if (state.lineMapCanvas && state.photoOpacity < .06) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, state.imageWidth, state.imageHeight); }
+    ctx.globalAlpha = state.photoOpacity;
     ctx.drawImage(state.image, 0, 0, state.imageWidth, state.imageHeight);
+    ctx.globalAlpha = 1;
+    if (state.lineMapCanvas) ctx.drawImage(state.lineMapCanvas, 0, 0, state.imageWidth, state.imageHeight);
     state.features.forEach(feature => { if (feature.id !== state.editingFeatureId) drawFeature(feature); });
     if (state.autoPreview) drawFeature({ ...state.autoPreview, geometry: state.autoPreview.geometry || 'polygon' });
     if (state.autoPreview) drawPreviewVertices();
@@ -1176,7 +1180,7 @@
       $('generateLineMap').textContent = 'Regenerate line map'; render();
     } catch (error) { showNotice(error.message || 'Could not make a line map for this image.'); }
   });
-  $('lineMapDetail').addEventListener('input', () => { if (state.image) $('generateLineMap').click(); });
+  $('lineMapDetail').addEventListener('input', () => { if (state.image && state.lineMapCanvas) $('generateLineMap').click(); });
   $('photoOpacity').addEventListener('input', () => { state.photoOpacity = Number($('photoOpacity').value) / 100; render(); });
   $('clearLineMap').addEventListener('click', () => {
     state.lineMapCanvas = null; state.photoOpacity = 1; $('lineMapControls').hidden = true;
