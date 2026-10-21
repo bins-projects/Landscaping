@@ -9,7 +9,7 @@
   $('inspectorEditorHost').appendChild($('objectEditor'));
   const state = {
     projectName: 'Untitled Florida site', location: '', imageName: '', imageData: '',
-    image: null, imageWidth: 0, imageHeight: 0, ftPerPixel: null,
+    image: null, imageWidth: 0, imageHeight: 0, ftPerPixel: null,\n    lineMapCanvas: null, lineMapDetail: 50, photoOpacity: 1,
     calibrationPoints: [], features: [], draft: [], activeMode: null,
     viewScale: 1, offsetX: 0, offsetY: 0, dpr: 1, panning: null,
     navigationLocked: true,
@@ -1009,7 +1009,7 @@
     reader.onload = () => {
       const image = new Image();
       image.onload = () => {
-        state.image = image; state.imageData = reader.result; state.imageName = file.name;
+        state.image = image; state.imageData = reader.result; state.imageName = file.name;\n        state.lineMapCanvas = null; state.photoOpacity = 1;\n        $('lineMapControls').hidden = true; $('photoOpacity').value = '100'; $('lineMapDetail').value = '50'; $('generateLineMap').textContent = 'Make line map';
         state.imageWidth = image.naturalWidth; state.imageHeight = image.naturalHeight;
         state.ftPerPixel = null; state.calibration = null; state.calibrationPoints = [];
         state.features = []; state.draft = []; state.activeMode = null; state.autoPreview = null; state.editingFeatureId = null; state.hasFit = false; state.navigationLocked = true; state.undoStack = [];
@@ -1166,6 +1166,22 @@
 
   $('siteName').addEventListener('input', updateProjectHeading);
   $('siteLocation').addEventListener('input', updateProjectHeading);
+  $('generateLineMap').addEventListener('click', () => {
+    if (!state.image) return;
+    try {
+      const result = SiteLineMap.build(state.image, state.imageWidth, state.imageHeight, $('lineMapDetail').value);
+      state.lineMapCanvas = result.canvas; state.photoOpacity = Number($('photoOpacity').value) / 100;
+      $('lineMapControls').hidden = false;
+      $('lineMapStatus').textContent = 'Line map ready · ' + result.edgeCount.toLocaleString() + ' edge pixels · adjust detail or fade the aerial';
+      $('generateLineMap').textContent = 'Regenerate line map'; render();
+    } catch (error) { showNotice(error.message || 'Could not make a line map for this image.'); }
+  });
+  $('lineMapDetail').addEventListener('input', () => { if (state.image) $('generateLineMap').click(); });
+  $('photoOpacity').addEventListener('input', () => { state.photoOpacity = Number($('photoOpacity').value) / 100; render(); });
+  $('clearLineMap').addEventListener('click', () => {
+    state.lineMapCanvas = null; state.photoOpacity = 1; $('lineMapControls').hidden = true;
+    $('generateLineMap').textContent = 'Make line map'; render(); showNotice('Line map cleared.');
+  });
   $('chooseImage').addEventListener('click', () => $('imageFile').click());
   $('emptyChooseImage').addEventListener('click', () => $('imageFile').click());
   $('imageFile').addEventListener('change', e => openImage(e.target.files[0]));
