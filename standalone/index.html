@@ -6,6 +6,7 @@
   <meta name="theme-color" content="#172b25">
   <title>Florida-Friendly Site Mapper</title>
   <link rel="stylesheet" href="site-mapper.css?v=245f2ab">
+<style>.line-map-controls{margin-top:9px;padding:10px;border:1px solid #dce8dd;border-radius:8px;background:#f5faf5}.line-map-controls[hidden]{display:none}.line-map-controls .field-label{margin-top:8px}.line-map-controls .button{margin-top:5px}</style>
 </head>
 <body>
   <header class="topbar">
@@ -41,6 +42,15 @@
           <span><b>Choose an aerial image</b><small>PNG, JPG, or WebP stays on this device</small></span>
         </button>
         <p id="imageStatus" class="subtle">No image loaded yet.</p>
+        <div class="step-title" style="margin-top:14px"><div><h2>Quick line map</h2><p>Generate simplified image edges in one click. Refine objects afterward.</p></div></div>
+        <button class="button button-primary full-width" id="generateLineMap" type="button">Make line map</button>
+        <div id="lineMapControls" class="line-map-controls" hidden>
+          <label class="field-label" for="lineMapDetail">Line detail <span class="optional">less ← → more</span></label>
+          <input id="lineMapDetail" class="tolerance-slider" type="range" min="0" max="100" value="50">
+          <label class="field-label" for="photoOpacity">Aerial visibility <span class="optional">line map ↔ photo</span></label>
+          <input id="photoOpacity" class="tolerance-slider" type="range" min="0" max="100" value="100">
+          <p id="lineMapStatus" class="subtle">Ready to generate.</p><button class="button button-quiet" id="clearLineMap" type="button">Clear line map</button>
+        </div>
       </section>
 
       <section class="panel">
@@ -187,6 +197,7 @@
   <script src="site-geometry.js?v=245f2ab"></script>
   <script src="site-segmentation.js?v=245f2ab"></script>
   <script src="default-image.js?v=245f2ab"></script>
-  <script src="site-mapper.js?v=245f2ab"></script>
+  <script src="site-line-map.js?v=line-map-1"></script>
+  <script src="site-mapper.js?v=line-map-1"></script>
 </body>
 </html>
