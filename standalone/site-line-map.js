@@ -14,7 +14,7 @@
     }
     const output = document.createElement('canvas'); output.width = w; output.height = h;
     const octx = output.getContext('2d'), result = octx.createImageData(w, h);
-    const threshold = 88 - Math.max(0, Math.min(100, Number(detail) || 50)) * .62;
+    const threshold = 88 - Math.max(0, Math.min(100, Number.isFinite(Number(detail)) ? Number(detail) : 50)) * .62;
     let edgeCount = 0;
     const magnitude = i => {
       const gx = -smooth[i-w-1] + smooth[i-w+1] - 2*smooth[i-1] + 2*smooth[i+1] - smooth[i+w-1] + smooth[i+w+1];
