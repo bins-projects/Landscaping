@@ -9,7 +9,8 @@
   $('inspectorEditorHost').appendChild($('objectEditor'));
   const state = {
     projectName: 'Untitled Florida site', location: '', imageName: '', imageData: '',
-    image: null, imageWidth: 0, imageHeight: 0, ftPerPixel: null,\n    lineMapCanvas: null, lineMapDetail: 50, photoOpacity: 1,
+    image: null, imageWidth: 0, imageHeight: 0, ftPerPixel: null,
+    lineMapCanvas: null, lineMapDetail: 50, photoOpacity: 1,
     calibrationPoints: [], features: [], draft: [], activeMode: null,
     viewScale: 1, offsetX: 0, offsetY: 0, dpr: 1, panning: null,
     navigationLocked: true,
@@ -1013,7 +1014,9 @@
     reader.onload = () => {
       const image = new Image();
       image.onload = () => {
-        state.image = image; state.imageData = reader.result; state.imageName = file.name;\n        state.lineMapCanvas = null; state.photoOpacity = 1;\n        $('lineMapControls').hidden = true; $('photoOpacity').value = '100'; $('lineMapDetail').value = '50'; $('generateLineMap').textContent = 'Make line map';
+        state.image = image; state.imageData = reader.result; state.imageName = file.name;
+        state.lineMapCanvas = null; state.photoOpacity = 1;
+        $('lineMapControls').hidden = true; $('photoOpacity').value = '100'; $('lineMapDetail').value = '50'; $('generateLineMap').textContent = 'Make line map';
         state.imageWidth = image.naturalWidth; state.imageHeight = image.naturalHeight;
         state.ftPerPixel = null; state.calibration = null; state.calibrationPoints = [];
         state.features = []; state.draft = []; state.activeMode = null; state.autoPreview = null; state.editingFeatureId = null; state.hasFit = false; state.navigationLocked = true; state.undoStack = [];
